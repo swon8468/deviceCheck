@@ -1,0 +1,96 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 계정 접근 규칙
+    match /accounts/{accountId} {
+      // 학생 계정 (Firestore 문서 ID로 관리)
+      allow read: if request.auth != null && 
+        (request.auth.uid == accountId || 
+         get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role == "super_admin" ||
+         (get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role == "homeroom_teacher" && 
+          resource.data.homeroomTeacher == request.auth.uid) ||
+         (get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role == "subject_teacher" && 
+          resource.data.subjectTeachers[request.auth.uid] != null));
+      
+      // 교사/관리자 계정 (Firebase Auth UID로 관리)
+      allow read: if request.auth != null && 
+        (request.auth.uid == accountId || 
+         get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role == "super_admin");
+      
+      allow write: if request.auth != null && 
+        get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role == "super_admin";
+    }
+    
+    // 클래스 접근 규칙
+    match /classes/{classId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && 
+        get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role in ["super_admin", "homeroom_teacher"];
+    }
+    
+    // 상벌점 기록 접근 규칙
+    match /merit_demerit_records/{recordId} {
+      allow read: if request.auth != null && 
+        (resource.data.creatorId == request.auth.uid ||
+         resource.data.studentId == request.auth.uid ||
+         get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role in ["super_admin", "homeroom_teacher"]);
+      
+      allow write: if request.auth != null && 
+        get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role in ["super_admin", "homeroom_teacher"];
+    }
+    
+    // 상벌점 요청 접근 규칙
+    match /merit_demerit_requests/{requestId} {
+      allow read: if request.auth != null && 
+        (resource.data.requestingTeacherId == request.auth.uid ||
+         resource.data.homeroomTeacherId == request.auth.uid ||
+         get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role == "super_admin");
+      
+      allow create: if request.auth != null && 
+        get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role == "subject_teacher";
+      
+      allow update: if request.auth != null && 
+        resource.data.homeroomTeacherId == request.auth.uid;
+    }
+    
+    // 상벌점 사유 접근 규칙
+    match /merit_reasons/{reasonId} {
+      allow read: if true;
+      allow write: if request.auth != null &&
+        get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role == "super_admin";
+    }
+    
+    // 시스템 로그 접근 규칙
+    match /system_logs/{logId} {
+      allow read: if request.auth != null &&
+        get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role == "super_admin";
+      allow write: if request.auth != null;
+    }
+    
+    // 문의 접근 규칙
+    match /inquiries/{inquiryId} {
+      allow read: if request.auth != null && 
+        (resource.data.userId == request.auth.uid ||
+         get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role == "super_admin");
+      allow write: if request.auth != null;
+    }
+    
+    // 학생 상벌점 로그 접근 규칙
+    match /merit_demerit_records/{logId} {
+      allow read: if request.auth != null && 
+        (resource.data.studentId == request.auth.uid ||
+         get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role in ["super_admin", "homeroom_teacher"]);
+      allow write: if request.auth != null && 
+        get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role in ["super_admin", "homeroom_teacher"];
+    }
+    
+    // 리셋 요청 접근 규칙
+    match /reset_requests/{requestId} {
+      allow read: if request.auth != null && 
+        (resource.data.studentId == request.auth.uid ||
+         get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role in ["super_admin", "homeroom_teacher"]);
+      allow write: if request.auth != null && 
+        get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.role in ["super_admin", "homeroom_teacher"];
+    }
+  }
+}
