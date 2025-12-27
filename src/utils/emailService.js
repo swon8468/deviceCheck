@@ -1,11 +1,11 @@
 import { getAuth, sendPasswordResetEmail as firebaseSendPasswordResetEmail } from 'firebase/auth';
 
-// 비밀번호 재설정 이메일 발송
 export const sendPasswordResetEmail = async (email) => {
   try {
     const auth = getAuth();
     
-    // Firebase Auth를 통해 비밀번호 재설정 이메일 발송
+    
+
     await firebaseSendPasswordResetEmail(auth, email);
     
     return {
@@ -21,10 +21,10 @@ export const sendPasswordResetEmail = async (email) => {
   }
 };
 
-// 사용자 이메일 검증 (Firestore에서 확인)
 export const verifyUserEmail = async (email) => {
   try {
-    // Firestore에서 사용자 확인
+    
+
     const { db } = await import('../firebase/config');
     const { collection, query, where, getDocs } = await import('firebase/firestore');
     

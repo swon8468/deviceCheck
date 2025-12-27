@@ -9,13 +9,12 @@ import { useResponsive } from './hooks/useResponsive';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import './styles/common.css';
 
-// 코드 스플리팅: 필요할 때만 로드
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const HomeroomTeacherDashboard = lazy(() => import('./pages/HomeroomTeacherDashboard'));
 const SubjectTeacherDashboard = lazy(() => import('./pages/SubjectTeacherDashboard'));
 const StudentDashboard = lazy(() => import('./pages/StudentDashboard'));
 
-// Material-UI 테마 생성
+
 const theme = createTheme({
   palette: {
     primary: {
@@ -25,7 +24,7 @@ const theme = createTheme({
       main: '#dc004e',
     },
     background: {
-      default: '#F5F7FA', // 파스텔 톤 배경색
+      default: '#F5F7FA',
       paper: '#FFFFFF',
     },
   },
@@ -88,17 +87,15 @@ const theme = createTheme({
   },
 });
 
-// 메인 앱 컴포넌트
 const AppContent = () => {
   const { currentUser, userRole, loading } = useAuth();
   
   
-  // 로딩 상태를 무시하고 바로 로그인 페이지 표시
   if (!currentUser) {
     return <LoginPage />;
   }
 
-  // 사용자 역할에 따른 대시보드 렌더링 (코드 스플리팅 적용)
+
   const renderDashboard = () => {
     switch (userRole) {
       case 'super_admin':
@@ -144,36 +141,29 @@ const AppContent = () => {
 };
 
 const App = () => {
-  // PWA 업데이트 감지
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r) {
-      // Service Worker 등록 완료
       console.log('Service Worker 등록 완료:', r);
     },
     onRegisterError(error) {
-      // Service Worker 등록 오류
       console.error('Service Worker 등록 오류:', error);
     },
     onNeedRefresh() {
-      // 새 버전 감지
       console.log('새 버전 감지됨');
     },
     onOfflineReady() {
-      // 오프라인 준비 완료
       console.log('오프라인 준비 완료');
     },
   });
   
-  // Service Worker 강제 업데이트 체크 (페이지 로드 시 및 주기적으로)
   React.useEffect(() => {
     const checkForUpdates = () => {
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistrations().then(registrations => {
           registrations.forEach(registration => {
-            // Service Worker 업데이트 체크
             registration.update().catch(err => {
               console.log('Service Worker 업데이트 체크:', err);
             });
@@ -182,10 +172,8 @@ const App = () => {
       }
     };
     
-    // 페이지 로드 시 즉시 체크
     checkForUpdates();
     
-    // 30초마다 업데이트 체크
     const interval = setInterval(checkForUpdates, 30000);
     
     return () => clearInterval(interval);
@@ -193,7 +181,6 @@ const App = () => {
 
   React.useEffect(() => {
     document.title = '올바른 전자기기 사용 관리 시스템';
-    // 파비콘 설정
     const link = document.querySelector("link[rel*='icon']") || document.createElement('link');
     link.type = 'image/svg+xml';
     link.rel = 'shortcut icon';
@@ -203,11 +190,9 @@ const App = () => {
 
   const handleUpdate = async () => {
     try {
-      // Service Worker 강제 업데이트
       if ('serviceWorker' in navigator) {
         const registrations = await navigator.serviceWorker.getRegistrations();
         for (const registration of registrations) {
-          // 활성화된 Service Worker 즉시 교체
           if (registration.waiting) {
             registration.waiting.postMessage({ type: 'SKIP_WAITING' });
           }
@@ -215,11 +200,9 @@ const App = () => {
         }
       }
       updateServiceWorker(true);
-      // 페이지 새로고침
       window.location.reload();
     } catch (error) {
       console.error('Service Worker 업데이트 오류:', error);
-      // 강제 새로고침
       window.location.reload();
     }
   };
@@ -248,7 +231,6 @@ const App = () => {
           <AppContent />
         </AuthProvider>
 
-        {/* PWA 업데이트 알림 - 전체 불투명 배경, 헤더 + 안내 + '업데이트' 버튼만 */}
         <Dialog
           open={needRefresh}
           onClose={handleDismiss}

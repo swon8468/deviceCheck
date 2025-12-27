@@ -4418,7 +4418,12 @@ const AdminDashboard = () => {
             {sidebarItems.map((item) => (
               <ListItem key={item.text} disablePadding>
                 <ListItemButton
-                  onClick={() => setTabValue(item.value)}
+                  onClick={() => {
+                    setTabValue(item.value);
+                    if (isMobileOrSmaller) {
+                      setSidebarOpen(false);
+                    }
+                  }}
                   selected={tabValue === item.value}
                   sx={{
                     '&.Mui-selected': {

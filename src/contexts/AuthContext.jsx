@@ -23,12 +23,11 @@ export const AuthProvider = ({ children }) => {
   const [userRole, setUserRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 학생 로그인 (기존 방식 유지)
   const loginStudent = async (name, birthDate, studentId) => {
     try {
       console.log('학생 로그인 시도:', { name, birthDate, studentId });
       
-      // studentId 필드로 학생 검색
+
       const studentsRef = collection(db, 'accounts');
       const q = query(
         studentsRef, 
@@ -55,16 +54,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // 교사/관리자 로그인 (Firebase Authentication 사용)
   const loginTeacher = async (email, password) => {
     try {
       console.log('교사 로그인 시도:', email);
       
-      // Firebase Authentication으로 로그인
+
       const result = await signInWithEmailAndPassword(auth, email, password);
       console.log('Firebase Auth 로그인 성공:', result.user.uid);
       
-      // Firestore에서 사용자 정보 조회
       const userRef = doc(db, 'accounts', result.user.uid);
       const userSnap = await getDoc(userRef);
       
@@ -72,9 +69,8 @@ export const AuthProvider = ({ children }) => {
         const userData = userSnap.data();
         console.log('사용자 데이터 조회됨:', userData);
         
-        // 계정이 비활성화되었는지 확인
         if (userData.status === 'disabled') {
-          // 비활성화된 계정이므로 로그아웃 처리
+          
           await signOut(auth);
           return { 
             success: false, 
@@ -82,9 +78,7 @@ export const AuthProvider = ({ children }) => {
           };
         }
         
-        // 계정이 삭제되었는지 확인
         if (userData.status === 'deleted') {
-          // 삭제된 계정이므로 로그아웃 처리
           await signOut(auth);
           return { 
             success: false, 
@@ -96,7 +90,6 @@ export const AuthProvider = ({ children }) => {
         setCurrentUser(user);
         setUserRole(userData.role);
         
-        // 로그인 성공 로그 기록
         try {
           await addDoc(collection(db, 'system_logs'), {
             userId: user.uid,
@@ -122,7 +115,6 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('교사 로그인 오류:', error);
       
-      // Firebase Auth 에러 코드별 메시지
       let errorMessage = '로그인에 실패했습니다.';
       switch (error.code) {
         case 'auth/user-not-found':
@@ -141,7 +133,6 @@ export const AuthProvider = ({ children }) => {
           errorMessage = error.message;
       }
       
-      // 로그인 실패 로그 기록
       try {
         await addDoc(collection(db, 'system_logs'), {
           userId: 'unknown',
@@ -163,7 +154,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // 관리자 계정 복원 (교사 계정 생성 후 사용)
   const restoreAdminAccount = async (adminUid) => {
     try {
       const adminRef = doc(db, 'accounts', adminUid);
@@ -184,10 +174,10 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // 로그아웃
   const logout = async () => {
     try {
-      // 로그아웃 전에 현재 사용자 정보 저장
+      
+
       const currentUserData = currentUser;
       
       await signOut(auth);
@@ -195,7 +185,6 @@ export const AuthProvider = ({ children }) => {
       setUserRole(null);
       console.log('로그아웃 완료');
       
-      // 로그아웃 로그 기록
       if (currentUserData) {
         try {
           await addDoc(collection(db, 'system_logs'), {
@@ -225,17 +214,16 @@ export const AuthProvider = ({ children }) => {
       
       if (user) {
         try {
-          // Firebase Auth 사용자인 경우 (교사/관리자)
+          
+
           const userRef = doc(db, 'accounts', user.uid);
           const userSnap = await getDoc(userRef);
           if (userSnap.exists()) {
             const userData = userSnap.data();
             console.log('자동 로그인 사용자 데이터:', userData);
             
-            // 계정이 비활성화되었는지 확인
             if (userData.status === 'disabled') {
               console.log('비활성화된 계정으로 자동 로그인 시도됨:', user.email);
-              // 비활성화된 계정이므로 로그아웃 처리
               await signOut(auth);
               setCurrentUser(null);
               setUserRole(null);

@@ -70,7 +70,6 @@ const SubjectTeacherDashboard = () => {
   const [tabValue, setTabValue] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   
-  // 사이드바 토글 함수
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
   };
@@ -86,11 +85,9 @@ const SubjectTeacherDashboard = () => {
   
 
   
-  // 반응형 디자인
   const theme = useTheme();
   const { isMobile, isTablet, isDesktop, isSmallMobile, isLargeDesktop, isMobileOrSmaller, isTabletOrLarger } = useResponsive();
   
-  // 다이얼로그 상태
   const [showRequestDialog, setShowRequestDialog] = useState(false);
   const [showClassStudentsDialog, setShowClassStudentsDialog] = useState(false);
   const [showInquiryDialog, setShowInquiryDialog] = useState(false);
@@ -99,7 +96,6 @@ const SubjectTeacherDashboard = () => {
   const [selectedClass, setSelectedClass] = useState(null);
   const [selectedInquiry, setSelectedInquiry] = useState(null);
   
-  // 폼 데이터
   const [requestForm, setRequestForm] = useState({
     studentId: '',
     type: 'demerit',
@@ -108,27 +104,22 @@ const SubjectTeacherDashboard = () => {
     description: ''
   });
 
-  // 학생 정렬 상태
   const [studentSortConfig, setStudentSortConfig] = useState({
     key: 'name',
     direction: 'asc'
   });
 
-  // 클래스 정렬 상태
   const [classSortConfig, setClassSortConfig] = useState({
     key: 'className',
     direction: 'asc'
   });
 
-  // 학생 검색 상태
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
   
-  // 학생 상벌점 내역 상태
   const [showStudentHistoryDialog, setShowStudentHistoryDialog] = useState(false);
   const [selectedStudentForHistory, setSelectedStudentForHistory] = useState(null);
   const [studentMeritHistory, setStudentMeritHistory] = useState([]);
 
-  // 학생 정렬 함수
   const handleStudentSort = (key) => {
     setStudentSortConfig(prev => ({
       key,
@@ -136,7 +127,6 @@ const SubjectTeacherDashboard = () => {
     }));
   };
 
-  // 클래스 정렬 함수
   const handleClassSort = (key) => {
     setClassSortConfig(prev => ({
       key,
@@ -144,12 +134,10 @@ const SubjectTeacherDashboard = () => {
     }));
   };
 
-  // 학생 검색 함수
   const handleStudentSearch = (searchTerm) => {
     setStudentSearchTerm(searchTerm);
   };
 
-  // 검색어로 학생 필터링
   const getFilteredStudents = () => {
     if (!studentSearchTerm.trim()) {
       return students;
@@ -165,7 +153,6 @@ const SubjectTeacherDashboard = () => {
     );
   };
 
-  // 학생 상벌점 내역 조회
   const fetchStudentMeritHistory = async (studentId) => {
     try {
       const meritLogsRef = collection(db, 'merit_demerit_records');
@@ -188,7 +175,6 @@ const SubjectTeacherDashboard = () => {
     }
   };
 
-  // 학생 내역 보기 핸들러
   const handleViewStudentHistory = async (student) => {
     setSelectedStudentForHistory(student);
     setShowStudentHistoryDialog(true);
@@ -200,8 +186,6 @@ const SubjectTeacherDashboard = () => {
     content: '',
     category: '일반'
   });
-
-  // 상벌점 사유는 Firebase에서 가져옴
 
   const inquiryCategories = [
     '일반',
@@ -227,7 +211,6 @@ const SubjectTeacherDashboard = () => {
           unsubscribeInquiries = await fetchInquiries();
           await fetchTeachers();
           
-          // 교과목 교사 대시보드 접근 로그 기록
           try {
             await addDoc(collection(db, 'system_logs'), {
               userId: currentUser.uid,
@@ -252,10 +235,8 @@ const SubjectTeacherDashboard = () => {
       
       setupListeners();
       
-      // 상벌점 사유 로드
       fetchMeritReasons();
       
-      // cleanup 함수들 반환
       return () => {
         if (typeof unsubscribeStudents === 'function') unsubscribeStudents();
         if (typeof unsubscribeRequests === 'function') unsubscribeRequests();
@@ -265,7 +246,6 @@ const SubjectTeacherDashboard = () => {
     }
   }, [currentUser]);
 
-  // selectedStudent가 변경될 때 requestForm.studentId도 설정
   useEffect(() => {
     if (selectedStudent) {
       setRequestForm(prev => ({
@@ -291,10 +271,8 @@ const SubjectTeacherDashboard = () => {
 
   const fetchStudents = async () => {
     try {
-      // 교과 선생님이 담당하는 클래스들을 먼저 찾기
       const classesRef = collection(db, 'classes');
       
-      // 실시간 업데이트를 위한 onSnapshot 사용
       const unsubscribeClasses = onSnapshot(classesRef, (classesSnapshot) => {
         const assignedClasses = [];
         
@@ -310,11 +288,9 @@ const SubjectTeacherDashboard = () => {
         
         setClasses(assignedClasses);
         
-        // 담당하는 클래스의 학생들만 가져오기
         if (assignedClasses.length > 0) {
           const studentsRef = collection(db, 'accounts');
           
-          // 모든 클래스의 학생들을 한 번에 조회
           const gradeClassPairs = assignedClasses.map(c => ({ grade: c.grade, class: c.class }));
           const uniqueGrades = [...new Set(gradeClassPairs.map(p => p.grade))];
           const uniqueClasses = [...new Set(gradeClassPairs.map(p => p.class))];
@@ -331,7 +307,6 @@ const SubjectTeacherDashboard = () => {
             
             querySnapshot.forEach((doc) => {
               const data = doc.data();
-              // 해당 교사가 담당하는 클래스의 학생만 필터링
               const isInTeacherClass = assignedClasses.some(c => {
                 const gradeMatch = c.grade === data.grade;
                 const classMatch = c.class === data.class;
@@ -341,7 +316,6 @@ const SubjectTeacherDashboard = () => {
               });
               
               if (isInTeacherClass) {
-                // 해당 학생의 클래스 정보에서 담임교사 정보 가져오기
                 const studentClass = assignedClasses.find(c => 
                   c.grade === data.grade && c.class === data.class
                 );
@@ -364,7 +338,6 @@ const SubjectTeacherDashboard = () => {
             setLoading(false);
           });
           
-          // 학생 조회 cleanup 함수 반환
           return unsubscribeStudents;
         }
         setLoading(false);
@@ -373,7 +346,6 @@ const SubjectTeacherDashboard = () => {
         setLoading(false);
       });
       
-      // 클래스 조회 cleanup 함수 반환
       return unsubscribeClasses;
     } catch (error) {
       console.error('학생 조회 오류:', error);
@@ -384,14 +356,12 @@ const SubjectTeacherDashboard = () => {
 
   const fetchSentRequests = async () => {
     try {
-      // 교과목 교사가 보낸 상벌점 요청들 조회
       const requestsRef = collection(db, 'merit_demerit_requests');
       const q = query(
         requestsRef,
         where('requestingTeacherId', '==', currentUser.uid)
       );
       
-      // 실시간 업데이트를 위한 onSnapshot 사용
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const requestsData = snapshot.docs.map(doc => ({
           id: doc.id,
@@ -404,7 +374,6 @@ const SubjectTeacherDashboard = () => {
         console.error('요청 실시간 조회 오류:', error);
       });
       
-      // cleanup 함수 반환
       return unsubscribe;
     } catch (error) {
       console.error('요청 조회 오류:', error);
@@ -414,14 +383,12 @@ const SubjectTeacherDashboard = () => {
 
   const fetchStudentLogs = async () => {
     try {
-      // 새로운 로그 컬렉션에서 해당 교사가 처리한 상벌점 로그 조회
       const logsRef = collection(db, 'merit_demerit_records');
       const q = query(
         logsRef,
         where('teacherId', '==', currentUser.uid)
       );
       
-      // 실시간 업데이트를 위한 onSnapshot 사용
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const logsData = snapshot.docs.map(doc => ({
           id: doc.id,
@@ -433,7 +400,6 @@ const SubjectTeacherDashboard = () => {
         console.error('상벌점 로그 실시간 조회 오류:', error);
       });
       
-      // cleanup 함수 반환
       return unsubscribe;
     } catch (error) {
       console.error('상벌점 로그 조회 오류:', error);
@@ -444,7 +410,6 @@ const SubjectTeacherDashboard = () => {
   const fetchInquiries = async () => {
     try {
       
-      // 본인이 작성한 문의만 조회
       const inquiriesRef = collection(db, 'inquiries');
       const q = query(
         inquiriesRef,
@@ -498,7 +463,6 @@ const SubjectTeacherDashboard = () => {
 
       await addDoc(collection(db, 'inquiries'), inquiryData);
 
-      // 폼 초기화
       setInquiryForm({
         title: '',
         content: '',
@@ -568,14 +532,12 @@ const SubjectTeacherDashboard = () => {
 
   const fetchTeachers = async () => {
     try {
-      // 모든 교사 정보 가져오기
       const teachersRef = collection(db, 'accounts');
       const q = query(
         teachersRef,
         where('role', 'in', ['homeroom_teacher', 'subject_teacher'])
       );
       
-      // 실시간 업데이트를 위한 onSnapshot 사용
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const teachersData = snapshot.docs.map(doc => ({
           id: doc.id,
@@ -586,7 +548,6 @@ const SubjectTeacherDashboard = () => {
         console.error('교사 정보 실시간 조회 오류:', error);
       });
       
-      // cleanup 함수 반환
       return unsubscribe;
     } catch (error) {
       console.error('교사 정보 조회 오류:', error);
@@ -607,11 +568,11 @@ const SubjectTeacherDashboard = () => {
     }
   };
 
-  // 담임교사 정보를 이름(이메일) 형식으로 가져오는 함수
   const getHomeroomTeacherDisplay = (teacherId) => {
     if (!teacherId) return '담임교사 없음';
     
-    // 담임교사 정보 찾기
+    
+
     const teacher = teachers.find(t => t.id === teacherId);
     if (teacher) {
       return `${teacher.name} (${teacher.email})`;
@@ -652,7 +613,6 @@ const SubjectTeacherDashboard = () => {
         return;
       }
 
-      // 선택된 학생 정보 가져오기
       const selectedStudentData = students.find(s => s.id === requestForm.studentId);
       if (!selectedStudentData) {
         await Swal.fire({
@@ -663,7 +623,6 @@ const SubjectTeacherDashboard = () => {
         return;
       }
 
-      // 학생의 담임 교사 찾기
       const studentClass = classes.find(c => c.grade === selectedStudentData.grade && c.class === selectedStudentData.class);
       if (!studentClass) {
         await Swal.fire({
@@ -674,7 +633,6 @@ const SubjectTeacherDashboard = () => {
         return;
       }
 
-      // 담임 교사 ID 확인 (여러 필드에서 찾기)
       const homeroomTeacherId = studentClass.homeroomTeacherId || 
                                 studentClass.homeroomTeacher || 
                                 studentClass.teacherId;
@@ -689,7 +647,6 @@ const SubjectTeacherDashboard = () => {
         return;
       }
 
-      // 벌점일 때 음수로 변환
       const points = requestForm.type === 'demerit' ? -Math.abs(requestForm.value) : Math.abs(requestForm.value);
       
       const requestData = {
@@ -699,7 +656,7 @@ const SubjectTeacherDashboard = () => {
         requestingTeacherId: currentUser.uid,
         requestingTeacherName: currentUser.name || currentUser.displayName || currentUser.email,
         requestingTeacherRole: currentUser.role,
-        requestingTeacherUid: currentUser.uid, // UID 명시적으로 저장
+        requestingTeacherUid: currentUser.uid,
         requester_id: currentUser.uid,
         requester_name: currentUser.name || currentUser.displayName || currentUser.email,
         requester_email: currentUser.email,
@@ -711,7 +668,7 @@ const SubjectTeacherDashboard = () => {
         homeroomTeacherId: homeroomTeacherId,
         homeroomTeacherName: studentClass.homeroomTeacherName || studentClass.teacherName || '',
         status: 'pending',
-        date: new Date(), // 상벌점 요청 날짜
+        date: new Date(),
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -719,7 +676,6 @@ const SubjectTeacherDashboard = () => {
       
       const docRef = await addDoc(collection(db, 'merit_demerit_requests'), requestData);
       
-      // 로그 기록
       try {
         await addDoc(collection(db, 'system_logs'), {
           userId: currentUser.uid,
@@ -806,7 +762,6 @@ const SubjectTeacherDashboard = () => {
     return null;
   }
 
-  // 로딩 상태 표시
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
@@ -815,7 +770,6 @@ const SubjectTeacherDashboard = () => {
     );
   }
 
-  // 오류 상태 표시
   if (error) {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', p: 3 }}>
@@ -828,11 +782,9 @@ const SubjectTeacherDashboard = () => {
     );
   }
 
-  // 모바일과 PC를 구분하여 렌더링
   if (isMobileOrSmaller) {
     return (
       <Box sx={{ minHeight: '100vh' }}>
-        {/* 모바일 헤더 */}
         <Box sx={{ 
           p: 2, 
           display: 'flex', 
@@ -852,19 +804,16 @@ const SubjectTeacherDashboard = () => {
           </Typography>
         </Box>
 
-        {/* 모바일 메인 콘텐츠 */}
         <Box sx={{ 
           p: 2, 
           width: '100%', 
           maxWidth: '100%',
           mx: 0
         }}>
-          {/* 선생님 이름 */}
           <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 3, textAlign: 'center' }}>
             {currentUser.name}선생님 ({currentUser.subject || '과목 미지정'})
           </Typography>
 
-          {/* 통계 카드들 */}
           <Box sx={{ 
             display: 'flex', 
             gap: 2, 
@@ -919,7 +868,6 @@ const SubjectTeacherDashboard = () => {
             </Card>
           </Box>
 
-          {/* 탭 버튼들 */}
           <Box sx={{ 
             display: 'flex', 
             gap: 1, 
@@ -942,10 +890,8 @@ const SubjectTeacherDashboard = () => {
             </Button>
           </Box>
 
-          {/* 탭 콘텐츠 */}
           {tabValue === 0 && (
             <Box sx={{ width: '100%' }}>
-              {/* 검색 및 필터 */}
               <Box sx={{ mb: 2 }}>
                 <TextField
                   fullWidth
@@ -956,7 +902,6 @@ const SubjectTeacherDashboard = () => {
                 />
               </Box>
 
-              {/* 학생 목록 카드들 */}
               {(() => {
                 const filteredStudents = getFilteredStudents();
                 
@@ -1040,7 +985,6 @@ const SubjectTeacherDashboard = () => {
           )}
         </Box>
 
-        {/* 모바일 사이드바 */}
         <Drawer
           anchor="left"
           open={sidebarOpen}
@@ -1126,7 +1070,6 @@ const SubjectTeacherDashboard = () => {
           </Box>
         </Drawer>
 
-        {/* 상벌점 요청 다이얼로그 */}
         <Dialog open={showRequestDialog} onClose={() => setShowRequestDialog(false)} maxWidth="md" fullWidth>
           <DialogTitle>상벌점 요청</DialogTitle>
           <DialogContent>
@@ -1207,7 +1150,6 @@ const SubjectTeacherDashboard = () => {
           </DialogActions>
         </Dialog>
 
-        {/* 클래스별 학생 목록 다이얼로그 */}
         <Dialog open={showClassStudentsDialog} onClose={() => setShowClassStudentsDialog(false)} maxWidth="md" fullWidth>
           <DialogTitle>
             {selectedClass ? `${selectedClass.grade}학년 ${selectedClass.class}반 학생 목록` : '학생 목록'}
@@ -1304,7 +1246,6 @@ const SubjectTeacherDashboard = () => {
           </DialogActions>
         </Dialog>
 
-        {/* 학생 상벌점 내역 다이얼로그 */}
         <Dialog open={showStudentHistoryDialog} onClose={() => setShowStudentHistoryDialog(false)} maxWidth="md" fullWidth>
           <DialogTitle>
             {selectedStudent ? `${selectedStudent.name} 상벌점 내역` : '상벌점 내역'}
@@ -1361,10 +1302,8 @@ const SubjectTeacherDashboard = () => {
     );
   }
 
-  // PC 버전
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      {/* 모바일에서 사이드바 토글 버튼 */}
+      <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <IconButton
         onClick={toggleSidebar}
         sx={{
@@ -1383,7 +1322,6 @@ const SubjectTeacherDashboard = () => {
         <MenuIcon />
       </IconButton>
 
-      {/* 사이드바 */}
       <Drawer
         variant="permanent"
         open={sidebarOpen}
@@ -1450,7 +1388,12 @@ const SubjectTeacherDashboard = () => {
             ].map((item) => (
               <ListItem key={item.text} disablePadding>
                 <ListItemButton
-                  onClick={() => setTabValue(item.value)}
+                  onClick={() => {
+                    setTabValue(item.value);
+                    if (isMobileOrSmaller) {
+                      setSidebarOpen(false);
+                    }
+                  }}
                   selected={tabValue === item.value}
                   sx={{
                     '&.Mui-selected': {
@@ -1486,7 +1429,6 @@ const SubjectTeacherDashboard = () => {
           </Box>
         </Drawer>
 
-      {/* 메인 콘텐츠 */}
       <Box sx={{ 
         flexGrow: 1, 
         overflow: 'auto', 
@@ -1497,7 +1439,6 @@ const SubjectTeacherDashboard = () => {
         width: '100%',
         maxWidth: '100%'
       }}>
-        {/* 헤더 */}
         <Box sx={{ 
           display: 'flex', 
           justifyContent: 'space-between', 
@@ -1511,7 +1452,6 @@ const SubjectTeacherDashboard = () => {
           </Typography>
         </Box>
 
-        {/* 통계 카드 */}
         <Grid container spacing={3} sx={{ mb: 4, width: '100%', maxWidth: '100%' }}>
           <Grid item xs={12} sm={4}>
             <Card sx={{ height: '100%', display: 'flex' }}>
@@ -1544,7 +1484,6 @@ const SubjectTeacherDashboard = () => {
           </Grid>
         </Grid>
 
-          {/* 탭 콘텐츠 */}
           {tabValue === 0 && (
             <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -1591,7 +1530,6 @@ const SubjectTeacherDashboard = () => {
                 <TableContainer component={Paper}>
                   <Table>
                   {studentSearchTerm.trim() ? (
-                    // 검색 시: 학생 목록 테이블
                     <>
                     <TableHead>
                       <TableRow>
@@ -1636,7 +1574,6 @@ const SubjectTeacherDashboard = () => {
                             );
                           }
                           
-                          // 정렬된 학생 목록 생성
                           const sortedStudents = [...filteredStudents].sort((a, b) => {
                             let comparison = 0;
                             let aValue, bValue;
@@ -1707,7 +1644,6 @@ const SubjectTeacherDashboard = () => {
                       </TableBody>
                     </>
                   ) : (
-                    // 검색 없을 시: 클래스별 그룹 테이블
                     <>
                       <TableHead>
                         <TableRow>
@@ -1734,7 +1670,6 @@ const SubjectTeacherDashboard = () => {
                     </TableHead>
                     <TableBody>
                       {(() => {
-                        // 교과 선생님이 담당하는 클래스들을 그룹화
                         const classGroups = {};
                         students.forEach(student => {
                           const classKey = `${student.grade}학년 ${student.class}반`;
@@ -1761,7 +1696,6 @@ const SubjectTeacherDashboard = () => {
                           );
                         }
                         
-                          // 정렬된 클래스 목록 생성
                           const sortedClassList = [...classList].sort((a, b) => {
                             let comparison = 0;
                             let aValue, bValue;
@@ -1913,7 +1847,6 @@ const SubjectTeacherDashboard = () => {
             </Box>
           )}
 
-          {/* 클래스별 학생 목록 다이얼로그 */}
           <Dialog open={showClassStudentsDialog} onClose={() => setShowClassStudentsDialog(false)} maxWidth="md" fullWidth>
             <DialogTitle>
               {selectedClass ? `${selectedClass.grade}학년 ${selectedClass.class}반 학생 목록` : '학생 목록'}
@@ -2040,7 +1973,6 @@ const SubjectTeacherDashboard = () => {
             </DialogActions>
           </Dialog>
 
-          {/* 상벌점 요청 다이얼로그 */}
           <Dialog open={showRequestDialog} onClose={() => setShowRequestDialog(false)} maxWidth="md" fullWidth>
             <DialogTitle>상벌점 요청</DialogTitle>
             <DialogContent>
@@ -2124,7 +2056,6 @@ const SubjectTeacherDashboard = () => {
             </DialogActions>
           </Dialog>
 
-        {/* 학생 상벌점 내역 보기 다이얼로그 */}
         <Dialog 
           open={showStudentHistoryDialog} 
           onClose={() => setShowStudentHistoryDialog(false)} 
@@ -2137,7 +2068,6 @@ const SubjectTeacherDashboard = () => {
           <DialogContent>
             {selectedStudentForHistory && (
               <Box sx={{ mt: 2 }}>
-                {/* 학생 정보 */}
                 <Box sx={{ mb: 3, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
                   <Typography variant="h6" gutterBottom>
                     학생 정보
@@ -2176,7 +2106,6 @@ const SubjectTeacherDashboard = () => {
                   </Grid>
             </Box>
             
-                {/* 상벌점 내역 테이블 */}
                 <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
                   상벌점 내역
               </Typography>
