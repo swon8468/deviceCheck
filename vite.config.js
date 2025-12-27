@@ -88,4 +88,22 @@ export default defineConfig({
   server: {
     port: 3080,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Vendor chunks
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-mui': ['@mui/material', '@mui/icons-material'],
+          'vendor-firebase': ['firebase'],
+          // Dashboard chunks (코드 스플리팅)
+          'dashboard-admin': ['./src/pages/AdminDashboard'],
+          'dashboard-homeroom': ['./src/pages/HomeroomTeacherDashboard'],
+          'dashboard-subject': ['./src/pages/SubjectTeacherDashboard'],
+          'dashboard-student': ['./src/pages/StudentDashboard'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
+  },
 })

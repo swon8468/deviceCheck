@@ -1,17 +1,19 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
-import { CssBaseline, Box, Container, Snackbar, Button, Alert } from '@mui/material';
+import { CssBaseline, Box, Container, Snackbar, Button, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, Typography } from '@mui/material';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
-import AdminDashboard from './pages/AdminDashboard';
-import HomeroomTeacherDashboard from './pages/HomeroomTeacherDashboard';
-import SubjectTeacherDashboard from './pages/SubjectTeacherDashboard';
-import StudentDashboard from './pages/StudentDashboard';
 import Footer from './components/Footer';
 import ScreenSizeWarning from './components/ScreenSizeWarning';
 import { useResponsive } from './hooks/useResponsive';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import './styles/common.css';
+
+// 코드 스플리팅: 필요할 때만 로드
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const HomeroomTeacherDashboard = lazy(() => import('./pages/HomeroomTeacherDashboard'));
+const SubjectTeacherDashboard = lazy(() => import('./pages/SubjectTeacherDashboard'));
+const StudentDashboard = lazy(() => import('./pages/StudentDashboard'));
 
 // Material-UI 테마 생성
 const theme = createTheme({
@@ -96,48 +98,49 @@ const AppContent = () => {
     return <LoginPage />;
   }
 
-  // 사용자 역할에 따른 대시보드 렌더링
-  switch (userRole) {
-    case 'super_admin':
-      return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-          <AdminDashboard />
-          <Footer />
-        </Box>
-      );
-    case 'homeroom_teacher':
-      return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-          <HomeroomTeacherDashboard />
-          <Footer />
-        </Box>
-      );
-    case 'subject_teacher':
-      return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-          <SubjectTeacherDashboard />
-          <Footer />
-        </Box>
-      );
-    case 'student':
-      return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-          <StudentDashboard />
-          <Footer />
-        </Box>
-      );
-    default:
-      return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+  // 사용자 역할에 따른 대시보드 렌더링 (코드 스플리팅 적용)
+  const renderDashboard = () => {
+    switch (userRole) {
+      case 'super_admin':
+        return <AdminDashboard />;
+      case 'homeroom_teacher':
+        return <HomeroomTeacherDashboard />;
+      case 'subject_teacher':
+        return <SubjectTeacherDashboard />;
+      case 'student':
+        return <StudentDashboard />;
+      default:
+        return (
           <Box className="page-container">
             <Container className="content-wrapper">
               <div>알 수 없는 사용자 역할입니다. (현재 역할: {userRole})</div>
             </Container>
           </Box>
-          <Footer />
-        </Box>
-      );
-  }
+        );
+    }
+  };
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <Suspense
+        fallback={
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              minHeight: '100vh',
+            }}
+          >
+            <CircularProgress />
+          </Box>
+        }
+      >
+        {renderDashboard()}
+      </Suspense>
+      <Footer />
+    </Box>
+  );
 };
 
 const App = () => {
@@ -192,46 +195,72 @@ const App = () => {
           <AppContent />
         </AuthProvider>
         
-        {/* PWA 업데이트 알림 */}
-        <Snackbar
+        {/* PWA 업데이트 알림 - 모달 형태 */}
+        <Dialog
           open={needRefresh}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+          onClose={handleDismiss}
+          PaperProps={{
+            sx: {
+              borderRadius: '12px',
+              padding: '24px',
+              maxWidth: '400px',
+              width: '90%',
+              textAlign: 'center'
+            }
+          }}
           sx={{
-            bottom: { xs: '90px', sm: '24px' },
             zIndex: 9999,
+            '& .MuiBackdrop-root': {
+              backgroundColor: 'rgba(0, 0, 0, 0.5)'
+            }
           }}
         >
-          <Alert
-            severity="info"
-            action={
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button
-                  color="inherit"
-                  size="small"
-                  onClick={handleUpdate}
-                  sx={{ fontWeight: 'bold' }}
-                >
-                  새로고침
-                </Button>
-                <Button
-                  color="inherit"
-                  size="small"
-                  onClick={handleDismiss}
-                >
-                  나중에
-                </Button>
-              </Box>
-            }
+          <DialogTitle
             sx={{
-              width: '100%',
-              '& .MuiAlert-message': {
-                flex: 1,
-              },
+              fontSize: '20px',
+              fontWeight: 'bold',
+              color: '#000',
+              paddingBottom: '16px',
+              textAlign: 'center'
             }}
           >
-            새로운 업데이트가 있습니다!
-          </Alert>
-        </Snackbar>
+            최신 버전 업데이트
+          </DialogTitle>
+          <DialogContent sx={{ paddingBottom: '20px' }}>
+            <Typography
+              variant="body1"
+              sx={{
+                color: '#000',
+                fontSize: '14px',
+                lineHeight: '1.6',
+                textAlign: 'center'
+              }}
+            >
+              최신버전 앱으로 업데이트를 위해<br />
+              스토어로 이동합니다.
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ justifyContent: 'center', paddingTop: '8px' }}>
+            <Button
+              variant="contained"
+              onClick={handleUpdate}
+              sx={{
+                backgroundColor: '#FF9800',
+                color: '#FFFFFF',
+                fontWeight: 'bold',
+                borderRadius: '8px',
+                padding: '10px 40px',
+                textTransform: 'none',
+                fontSize: '16px',
+                '&:hover': {
+                  backgroundColor: '#F57C00'
+                }
+              }}
+            >
+              확인
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </ThemeProvider>
   );

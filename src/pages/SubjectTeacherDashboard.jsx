@@ -697,8 +697,13 @@ const SubjectTeacherDashboard = () => {
         points: points,
         value: points,
         requestingTeacherId: currentUser.uid,
-        requestingTeacherName: currentUser.name,
+        requestingTeacherName: currentUser.name || currentUser.displayName || currentUser.email,
         requestingTeacherRole: currentUser.role,
+        requestingTeacherUid: currentUser.uid, // UID 명시적으로 저장
+        requester_id: currentUser.uid,
+        requester_name: currentUser.name || currentUser.displayName || currentUser.email,
+        requester_email: currentUser.email,
+        requester_role: currentUser.role,
         studentId: selectedStudentData.id,
         studentName: selectedStudentData.name,
         studentGrade: selectedStudentData.grade,
@@ -2039,89 +2044,79 @@ const SubjectTeacherDashboard = () => {
           <Dialog open={showRequestDialog} onClose={() => setShowRequestDialog(false)} maxWidth="md" fullWidth>
             <DialogTitle>상벌점 요청</DialogTitle>
             <DialogContent>
-              <Grid container spacing={3} sx={{ mt: 1 }}>
-                <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>학생</InputLabel>
-                    <Select
-                      value={selectedStudent ? selectedStudent.id : requestForm.studentId}
-                      onChange={(e) => setRequestForm({...requestForm, studentId: e.target.value})}
-                      label="학생"
-                      size="medium"
-                    >
-                      {selectedStudent && (
-                        <MenuItem value={selectedStudent.id}>
-                          {selectedStudent.name} ({selectedStudent.studentId}) - {selectedStudent.grade}학년 {selectedStudent.class}반
-                        </MenuItem>
-                      )}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>구분</InputLabel>
-                    <Select
-                      value={requestForm.type}
-                      onChange={(e) => setRequestForm({...requestForm, type: e.target.value})}
-                      label="구분"
-                      size="medium"
-                    >
-                      <MenuItem value="merit">상점</MenuItem>
-                      <MenuItem value="demerit">벌점</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="점수"
-                    type="number"
-                    value={requestForm.value}
-                    onChange={(e) => setRequestForm({...requestForm, value: parseInt(e.target.value)})}
-                    inputProps={{ min: 1 }}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1, maxWidth: '500px', mx: 'auto' }}>
+                <FormControl fullWidth>
+                  <InputLabel>학생</InputLabel>
+                  <Select
+                    value={selectedStudent ? selectedStudent.id : requestForm.studentId}
+                    onChange={(e) => setRequestForm({...requestForm, studentId: e.target.value})}
+                    label="학생"
+                    size="medium"
+                  >
+                    {selectedStudent && (
+                      <MenuItem value={selectedStudent.id}>
+                        {selectedStudent.name} ({selectedStudent.studentId}) - {selectedStudent.grade}학년 {selectedStudent.class}반
+                      </MenuItem>
+                    )}
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth>
+                  <InputLabel>구분</InputLabel>
+                  <Select
+                    value={requestForm.type}
+                    onChange={(e) => setRequestForm({...requestForm, type: e.target.value})}
+                    label="구분"
+                    size="medium"
+                  >
+                    <MenuItem value="merit">상점</MenuItem>
+                    <MenuItem value="demerit">벌점</MenuItem>
+                  </Select>
+                </FormControl>
+                <TextField
+                  fullWidth
+                  label="점수"
+                  type="number"
+                  value={requestForm.value}
+                  onChange={(e) => setRequestForm({...requestForm, value: parseInt(e.target.value)})}
+                  inputProps={{ min: 1 }}
+                  required
+                  size="medium"
+                />
+                <FormControl fullWidth required>
+                  <InputLabel>사유</InputLabel>
+                  <Select
+                    value={requestForm.reason}
+                    onChange={(e) => setRequestForm({...requestForm, reason: e.target.value})}
+                    label="사유"
+                    size="medium"
                     required
-                    size="medium"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth required>
-                    <InputLabel>사유</InputLabel>
-                    <Select
-                      value={requestForm.reason}
-                      onChange={(e) => setRequestForm({...requestForm, reason: e.target.value})}
-                      label="사유"
-                      size="medium"
-                      required
-                    >
-                      {requestForm.type === 'merit' ? (
-                        meritReasons.filter(reason => reason.type === 'merit').map((reason) => (
-                          <MenuItem key={reason.id} value={reason.reason}>
-                            {reason.reason}
-                          </MenuItem>
-                        ))
-                      ) : (
-                        meritReasons.filter(reason => reason.type === 'demerit').map((reason) => (
-                          <MenuItem key={reason.id} value={reason.reason}>
-                            {reason.reason}
-                          </MenuItem>
-                        ))
-                      )}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="상세 내용"
-                    multiline
-                    rows={3}
-                    value={requestForm.description}
-                    onChange={(e) => setRequestForm({...requestForm, description: e.target.value})}
-                    placeholder="상벌점을 부여하는 구체적인 이유를 작성해주세요."
-                    size="medium"
-                  />
-                </Grid>
-              </Grid>
+                  >
+                    {requestForm.type === 'merit' ? (
+                      meritReasons.filter(reason => reason.type === 'merit').map((reason) => (
+                        <MenuItem key={reason.id} value={reason.reason}>
+                          {reason.reason}
+                        </MenuItem>
+                      ))
+                    ) : (
+                      meritReasons.filter(reason => reason.type === 'demerit').map((reason) => (
+                        <MenuItem key={reason.id} value={reason.reason}>
+                          {reason.reason}
+                        </MenuItem>
+                      ))
+                    )}
+                  </Select>
+                </FormControl>
+                <TextField
+                  fullWidth
+                  label="상세 내용"
+                  multiline
+                  rows={3}
+                  value={requestForm.description}
+                  onChange={(e) => setRequestForm({...requestForm, description: e.target.value})}
+                  placeholder="상벌점을 부여하는 구체적인 이유를 작성해주세요."
+                  size="medium"
+                />
+              </Box>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setShowRequestDialog(false)}>취소</Button>

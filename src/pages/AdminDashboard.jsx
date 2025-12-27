@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Box, Container, Typography, Card, CardContent, Grid, Button, Tabs, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl, InputLabel, Select, MenuItem, IconButton, Alert, useTheme, useMediaQuery, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider
 } from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Logout as LogoutIcon, School as SchoolIcon, Person as PersonIcon, Group as GroupIcon, Dashboard as DashboardIcon, Class as ClassIcon, FileUpload as FileUploadIcon, FileDownload as FileDownloadIcon, Warning as WarningIcon, AdminPanelSettings as AdminIcon, DeleteForever as DeleteForeverIcon, Refresh as RefreshIcon, CloudDownload as CloudDownloadIcon, Menu as MenuIcon
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Logout as LogoutIcon, School as SchoolIcon, Person as PersonIcon, Group as GroupIcon, Dashboard as DashboardIcon, Class as ClassIcon, FileUpload as FileUploadIcon, FileDownload as FileDownloadIcon, Warning as WarningIcon, AdminPanelSettings as AdminIcon, DeleteForever as DeleteForeverIcon, Refresh as RefreshIcon, CloudDownload as CloudDownloadIcon, Menu as MenuIcon, Assessment as AssessmentIcon
 } from '@mui/icons-material';
 import { Badge } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
@@ -46,6 +46,8 @@ import logoImage from '../img/logo.png';
 const AdminDashboard = () => {
   const { currentUser, logout, restoreAdminAccount } = useAuth();
   const [tabValue, setTabValue] = useState(0);
+  const [selectedMeritRecord, setSelectedMeritRecord] = useState(null); // 상벌점 내역에서 선택된 기록
+  const [showMeritRecordDetailDialog, setShowMeritRecordDetailDialog] = useState(false); // 상벌점 기록 상세 정보 모달
   
   // 사이드바 토글 함수
   const toggleSidebar = () => {
@@ -85,6 +87,25 @@ const AdminDashboard = () => {
     type: 'merit',
     reason: ''
   });
+  
+  // 새학기 시작 관련 상태
+  const [showNewSemesterDialog, setShowNewSemesterDialog] = useState(false);
+  const [showTeacherAssignmentDialog, setShowTeacherAssignmentDialog] = useState(false);
+  const [showCreateTeacherDialog, setShowCreateTeacherDialog] = useState(false);
+  const [newSemesterType, setNewSemesterType] = useState('same_year'); // 'same_year' 또는 'new_year'
+  const [createdClasses, setCreatedClasses] = useState([]);
+  const [teacherAssignment, setTeacherAssignment] = useState({}); // { classId: teacherId }
+  const [newTeacherForm, setNewTeacherForm] = useState({
+    name: '',
+    email: '',
+    phone: ''
+  });
+  const [selectedClassForTeacher, setSelectedClassForTeacher] = useState(null);
+  
+  // 학기 변동 알림 관련 상태
+  const [showSemesterChangeNotification, setShowSemesterChangeNotification] = useState(false);
+  const [semesterChangeNotification, setSemesterChangeNotification] = useState(null);
+  const [semesterChangeBackup, setSemesterChangeBackup] = useState(null);
   const [classStudentSortConfig, setClassStudentSortConfig] = useState({
     key: 'name',
     direction: 'asc'
@@ -308,9 +329,333 @@ const AdminDashboard = () => {
     }
   };
 
+  // 학기 변동 필요 여부 체크
+  const checkSemesterChangeNeeded = async () => {
+    try {
+      const now = new Date();
+      const month = now.getMonth() + 1; // 1~12
+      
+      // 9월이고 현재 학기가 1학기인지 확인
+      if (month >= 9) {
+        // academic_settings 확인
+        const settingsRef = doc(db, 'academic_settings', 'current');
+        const settingsDoc = await getDoc(settingsRef);
+        
+        let currentSemester = '1';
+        let currentAcademicYear = now.getFullYear().toString();
+        
+        if (settingsDoc.exists()) {
+          const settings = settingsDoc.data();
+          currentSemester = settings.currentSemester || '1';
+          currentAcademicYear = settings.currentAcademicYear || now.getFullYear().toString();
+        } else {
+          // 설정이 없으면 현재 날짜 기준으로 계산
+          const calculated = getCurrentAcademicYearAndSemester();
+          currentSemester = calculated.semester;
+          currentAcademicYear = calculated.academicYear;
+        }
+        
+        // 현재 학기가 1학기이고, 실제 날짜가 9월 이상이면 학기 변동 필요
+        if (currentSemester === '1') {
+          // 학기 변동 알림 확인
+          const notificationRef = doc(db, 'semester_change_notifications', 'current');
+          const notificationDoc = await getDoc(notificationRef);
+          
+          if (!notificationDoc.exists() || notificationDoc.data().status !== 'approved') {
+            // 알림이 없거나 승인되지 않았으면 표시
+            const notificationData = notificationDoc.exists() ? notificationDoc.data() : null;
+            setSemesterChangeNotification({
+              currentAcademicYear,
+              currentSemester: '1',
+              newSemester: '2',
+              status: notificationData?.status || 'pending',
+              backupId: notificationData?.backupId || null
+            });
+            
+            // 백업 ID가 있으면 롤백 가능
+            if (notificationData?.backupId) {
+              setSemesterChangeBackup(notificationData.backupId);
+            }
+            
+            setShowSemesterChangeNotification(true);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('학기 변동 체크 오류:', error);
+    }
+  };
+
+  // 학기 변동 승인 처리
+  const handleApproveSemesterChange = async () => {
+    try {
+      setLoading(true);
+      
+      // 현재 데이터 조회
+      const studentsRef = collection(db, 'accounts');
+      const studentsQuery = query(studentsRef, where('role', '==', 'student'));
+      const studentsSnapshot = await getDocs(studentsQuery);
+      
+      const classesRef = collection(db, 'classes');
+      const classesSnapshot = await getDocs(classesRef);
+      
+      // 백업 데이터 저장 (롤백용)
+      const backupData = {
+        students: studentsSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            currentAcademicYear: data.currentAcademicYear,
+            currentSemester: data.currentSemester
+          };
+        }),
+        classes: classesSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            academicYear: data.academicYear,
+            semester: data.semester
+          };
+        }),
+        settings: null
+      };
+      
+      // academic_settings 백업
+      const settingsRef = doc(db, 'academic_settings', 'current');
+      const settingsDoc = await getDoc(settingsRef);
+      if (settingsDoc.exists()) {
+        backupData.settings = settingsDoc.data();
+      }
+      
+      // 백업 저장
+      const backupId = `backup_${Date.now()}`;
+      const backupRef = doc(db, 'semester_change_backups', backupId);
+      await setDoc(backupRef, {
+        ...backupData,
+        createdAt: new Date(),
+        createdBy: currentUser.uid
+      });
+      
+      setSemesterChangeBackup(backupId);
+      
+      const batch = writeBatch(db);
+      const { academicYear } = getCurrentAcademicYearAndSemester();
+      const newSemester = '2';
+      
+      // 1. 모든 학생의 학기 정보 업데이트
+      studentsSnapshot.forEach(studentDoc => {
+        const studentData = studentDoc.data();
+        if (studentData.status === 'active') {
+          const studentRef = doc(db, 'accounts', studentDoc.id);
+          batch.update(studentRef, {
+            currentSemester: newSemester,
+            updatedAt: new Date()
+          });
+        }
+      });
+      
+      // 2. 모든 클래스의 학기 정보 업데이트
+      classesSnapshot.forEach(classDoc => {
+        const classRef = doc(db, 'classes', classDoc.id);
+        batch.update(classRef, {
+          semester: newSemester,
+          updatedAt: new Date()
+        });
+      });
+      
+      // 3. academic_settings 업데이트
+      batch.set(settingsRef, {
+        currentAcademicYear: academicYear,
+        currentSemester: newSemester,
+        semester1Start: `${academicYear}-03-01`,
+        semester1End: `${academicYear}-08-31`,
+        semester2Start: `${academicYear}-09-01`,
+        semester2End: `${parseInt(academicYear) + 1}-02-28`,
+        updatedAt: new Date(),
+        updatedBy: currentUser.uid
+      }, { merge: true });
+      
+      // 4. 학기 변동 알림 상태 업데이트
+      const notificationRef = doc(db, 'semester_change_notifications', 'current');
+      batch.set(notificationRef, {
+        status: 'approved',
+        approvedAt: new Date(),
+        approvedBy: currentUser.uid,
+        backupId: backupId,
+        currentAcademicYear: academicYear,
+        currentSemester: '1',
+        newSemester: '2'
+      }, { merge: true });
+      
+      await batch.commit();
+      
+      // 로그 기록
+      await logSystemAction(
+        currentUser,
+        LOG_CATEGORIES.SYSTEM_MANAGEMENT.middle.UPDATE,
+        '학기 자동 변동 승인',
+        `${academicYear}학년도 1학기 → 2학기 자동 변동 완료`
+      );
+      
+      await Swal.fire({
+        title: '학기 변동 완료',
+        text: `${academicYear}학년도 2학기로 변동되었습니다.`,
+        icon: 'success'
+      });
+      
+      setShowSemesterChangeNotification(false);
+      setSemesterChangeNotification(null);
+      
+      // 데이터 새로고침
+      window.location.reload();
+    } catch (error) {
+      console.error('학기 변동 승인 오류:', error);
+      await Swal.fire({
+        title: '오류',
+        text: '학기 변동 처리 중 오류가 발생했습니다: ' + error.message,
+        icon: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 학기 변동 롤백
+  const handleRollbackSemesterChange = async () => {
+    try {
+      const backupId = semesterChangeBackup || semesterChangeNotification?.backupId;
+      
+      if (!backupId) {
+        await Swal.fire({
+          title: '오류',
+          text: '롤백할 백업 데이터를 찾을 수 없습니다.',
+          icon: 'error'
+        });
+        return;
+      }
+      
+      const result = await Swal.fire({
+        title: '롤백 확인',
+        html: `
+          <div style="text-align: left;">
+            <p><strong>학기 변동을 되돌리시겠습니까?</strong></p>
+            <p style="color: #d32f2f;">⚠️ 이 작업은 되돌릴 수 없습니다!</p>
+            <p>계속하려면 아래 입력란에 <strong>"ROLLBACK"</strong>을 입력하세요.</p>
+            <input type="text" id="rollbackConfirmText" class="swal2-input" placeholder="ROLLBACK">
+          </div>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '롤백',
+        cancelButtonText: '취소',
+        confirmButtonColor: '#d32f2f',
+        cancelButtonColor: '#6c757d',
+        preConfirm: () => {
+          const confirmText = document.getElementById('rollbackConfirmText').value;
+          if (confirmText !== 'ROLLBACK') {
+            Swal.showValidationMessage('정확한 텍스트를 입력해주세요.');
+            return false;
+          }
+          return true;
+        }
+      });
+      
+      if (!result.isConfirmed) return;
+      
+      setLoading(true);
+      
+      // 백업 데이터 조회
+      const backupRef = doc(db, 'semester_change_backups', backupId);
+      const backupDoc = await getDoc(backupRef);
+      
+      if (!backupDoc.exists()) {
+        throw new Error('백업 데이터를 찾을 수 없습니다.');
+      }
+      
+      const backupData = backupDoc.data();
+      const batch = writeBatch(db);
+      
+      // 학생 정보 롤백
+      if (backupData.students && Array.isArray(backupData.students)) {
+        backupData.students.forEach(student => {
+          const studentRef = doc(db, 'accounts', student.id);
+          batch.update(studentRef, {
+            currentAcademicYear: student.currentAcademicYear,
+            currentSemester: student.currentSemester,
+            updatedAt: new Date()
+          });
+        });
+      }
+      
+      // 클래스 정보 롤백
+      if (backupData.classes && Array.isArray(backupData.classes)) {
+        backupData.classes.forEach(classItem => {
+          const classRef = doc(db, 'classes', classItem.id);
+          batch.update(classRef, {
+            academicYear: classItem.academicYear,
+            semester: classItem.semester,
+            updatedAt: new Date()
+          });
+        });
+      }
+      
+      // settings 롤백
+      if (backupData.settings) {
+        const settingsRef = doc(db, 'academic_settings', 'current');
+        batch.set(settingsRef, {
+          ...backupData.settings,
+          updatedAt: new Date()
+        });
+      }
+      
+      // 알림 상태 초기화
+      const notificationRef = doc(db, 'semester_change_notifications', 'current');
+      batch.update(notificationRef, {
+        status: 'pending',
+        rollbackAt: new Date(),
+        rollbackBy: currentUser.uid
+      });
+      
+      await batch.commit();
+      
+      // 로그 기록
+      await logSystemAction(
+        currentUser,
+        LOG_CATEGORIES.SYSTEM_MANAGEMENT.middle.UPDATE,
+        '학기 변동 롤백',
+        `학기 변동 롤백 완료 (백업 ID: ${backupId})`
+      );
+      
+      await Swal.fire({
+        title: '롤백 완료',
+        text: '학기 변동이 롤백되었습니다.',
+        icon: 'success'
+      });
+      
+      setShowSemesterChangeNotification(false);
+      setSemesterChangeNotification(null);
+      setSemesterChangeBackup(null);
+      
+      // 데이터 새로고침
+      window.location.reload();
+    } catch (error) {
+      console.error('롤백 오류:', error);
+      await Swal.fire({
+        title: '오류',
+        text: '롤백 중 오류가 발생했습니다: ' + error.message,
+        icon: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 실시간 데이터 업데이트 설정
   useEffect(() => {
     if (!currentUser) return;
+
+    // 학기 변동 필요 여부 체크
+    checkSemesterChangeNeeded();
 
     // 클래스 실시간 업데이트
     const classesRef = collection(db, 'classes');
@@ -1814,15 +2159,614 @@ const AdminDashboard = () => {
         setLoading(false);
       }
     } catch (error) {
-      setLoading(false);
-      setError('교사 전체 삭제 중 오류가 발생했습니다: ' + error.message);
+      console.error('교사 전체 삭제 오류:', error);
       await Swal.fire({
         title: '오류',
-        text: '교사 전체 삭제 중 오류가 발생했습니다.',
+        text: '교사 삭제 중 오류가 발생했습니다: ' + error.message,
         icon: 'error',
         customClass: {
           container: 'swal2-container-high-z'
         }
+      });
+      setLoading(false);
+    }
+  };
+
+  const handleResetAllMeritRecords = async () => {
+    try {
+      const result = await Swal.fire({
+        title: '⚠️ 위험한 작업',
+        html: `
+          <div style="text-align: left;">
+            <p><strong>모든 상벌점 내역을 초기화하시겠습니까?</strong></p>
+            <p style="color: #ff9800; font-weight: bold;">⚠️ 이 작업은 되돌릴 수 없습니다!</p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+              <li>모든 상벌점 기록이 삭제됩니다</li>
+              <li>상벌점 요청 내역이 삭제됩니다</li>
+              <li>학생들의 누적 점수가 초기화됩니다</li>
+              <li>관련된 모든 데이터가 영구적으로 삭제됩니다</li>
+            </ul>
+            <p>계속하려면 아래 입력란에 <strong>"RESET ALL MERIT RECORDS"</strong>를 입력하세요.</p>
+            <input type="text" id="confirmText" class="swal2-input" placeholder="RESET ALL MERIT RECORDS">
+          </div>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '초기화 실행',
+        cancelButtonText: '취소',
+        confirmButtonColor: '#ff9800',
+        cancelButtonColor: '#6c757d',
+        customClass: {
+          container: 'swal2-container-high-z'
+        },
+        preConfirm: () => {
+          const confirmText = document.getElementById('confirmText').value;
+          if (confirmText !== 'RESET ALL MERIT RECORDS') {
+            Swal.showValidationMessage('정확한 텍스트를 입력해주세요.');
+            return false;
+          }
+          return true;
+        }
+      });
+
+      if (result.isConfirmed) {
+        setLoading(true);
+        
+        // 모든 상벌점 기록 삭제
+        const recordsRef = collection(db, 'merit_demerit_records');
+        const recordsSnapshot = await getDocs(recordsRef);
+        
+        let deleteCount = 0;
+        if (!recordsSnapshot.empty) {
+          const batch = writeBatch(db);
+          recordsSnapshot.forEach((recordDoc) => {
+            batch.delete(recordDoc.ref);
+            deleteCount++;
+          });
+          await batch.commit();
+        }
+        
+        // 모든 상벌점 요청 삭제
+        const requestsRef = collection(db, 'merit_demerit_requests');
+        const requestsSnapshot = await getDocs(requestsRef);
+        
+        let requestDeleteCount = 0;
+        if (!requestsSnapshot.empty) {
+          const requestBatch = writeBatch(db);
+          requestsSnapshot.forEach((requestDoc) => {
+            requestBatch.delete(requestDoc.ref);
+            requestDeleteCount++;
+          });
+          await requestBatch.commit();
+        }
+        
+        // 모든 학생의 누적 점수 초기화
+        const studentsRef = collection(db, 'accounts');
+        const studentsQuery = query(studentsRef, where('role', '==', 'student'));
+        const studentsSnapshot = await getDocs(studentsQuery);
+        
+        if (!studentsSnapshot.empty) {
+          const studentBatch = writeBatch(db);
+          studentsSnapshot.forEach((studentDoc) => {
+            studentBatch.update(studentDoc.ref, {
+              totalMeritPoints: 0,
+              totalDemeritPoints: 0,
+              meritPoints: 0,
+              demeritPoints: 0,
+              updatedAt: new Date()
+            });
+          });
+          await studentBatch.commit();
+        }
+        
+        // 로그 기록
+        await logSystemAction(
+          currentUser,
+          LOG_CATEGORIES.SYSTEM_MANAGEMENT.middle.DELETE,
+          '상벌점 내역 전체 초기화',
+          `모든 상벌점 기록 삭제 완료 (기록: ${deleteCount}개, 요청: ${requestDeleteCount}개)`
+        );
+        
+        // 데이터 새로고침
+        await fetchMeritRecords();
+        
+        await Swal.fire({
+          title: '초기화 완료',
+          text: `상벌점 기록 ${deleteCount}개와 요청 ${requestDeleteCount}개가 삭제되었습니다.`,
+          icon: 'success',
+          customClass: {
+            container: 'swal2-container-high-z'
+          }
+        });
+        
+        setLoading(false);
+      }
+    } catch (error) {
+      setLoading(false);
+      setError('상벌점 내역 초기화 중 오류가 발생했습니다: ' + error.message);
+      await Swal.fire({
+        title: '오류',
+        text: '상벌점 내역 초기화 중 오류가 발생했습니다.',
+        icon: 'error',
+        customClass: {
+          container: 'swal2-container-high-z'
+        }
+      });
+    }
+  };
+
+  // 새학번 파싱 함수
+  const parseStudentNumber = (studentNumber) => {
+    const numStr = String(studentNumber).padStart(5, '0');
+    
+    if (numStr.length !== 5) {
+      throw new Error('학번은 5자리여야 합니다.');
+    }
+    
+    const grade = parseInt(numStr[0]);
+    const classNum = parseInt(numStr.substring(1, 3));
+    const number = parseInt(numStr.substring(3, 5));
+    
+    // 유효성 검증
+    if (grade < 1 || grade > 6) {
+      throw new Error('학년은 1~6 사이여야 합니다.');
+    }
+    if (classNum < 1 || classNum > 20) {
+      throw new Error('반은 1~20 사이여야 합니다.');
+    }
+    if (number < 1 || number > 40) {
+      throw new Error('번호는 1~40 사이여야 합니다.');
+    }
+    
+    return { grade, class: classNum, number };
+  };
+
+  // 학년도/학기 자동 계산
+  const getCurrentAcademicYearAndSemester = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1; // 1~12
+    
+    if (month >= 3 && month <= 8) {
+      // 3~8월: 해당 년도의 1학기
+      return { academicYear: year.toString(), semester: "1" };
+    } else if (month >= 9) {
+      // 9~12월: 해당 년도의 2학기
+      return { academicYear: year.toString(), semester: "2" };
+    } else {
+      // 1~2월: 전년도의 2학기
+      return { academicYear: (year - 1).toString(), semester: "2" };
+    }
+  };
+
+  // 새학기 시작 - 학생 정보 다운로드
+  const handleDownloadStudentInfoForNewSemester = async () => {
+    try {
+      setLoading(true);
+      
+      // 활성 학생만 조회
+      const studentsRef = collection(db, 'accounts');
+      const studentsQuery = query(studentsRef, where('role', '==', 'student'), where('status', '==', 'active'));
+      const studentsSnapshot = await getDocs(studentsQuery);
+      
+      const studentsData = studentsSnapshot.docs.map(doc => {
+        const data = doc.data();
+        // 현재학번이 없으면 학년+반+번호로 생성
+        let currentStudentNumber = data.studentNumber || '';
+        if (!currentStudentNumber && data.grade && data.class && data.number) {
+          // 학년(1자리) + 반(2자리) + 번호(2자리) = 5자리
+          currentStudentNumber = `${data.grade}${String(data.class).padStart(2, '0')}${String(data.number).padStart(2, '0')}`;
+        }
+        
+        return {
+          uid: doc.id,
+          이름: data.name || '',
+          현재학번: currentStudentNumber,
+          새학번: ''
+        };
+      });
+      
+      // 컬럼 순서 명시적으로 지정
+      const columnOrder = ['uid', '이름', '현재학번', '새학번'];
+      
+      // XLSX 생성
+      const ws = XLSX.utils.json_to_sheet(studentsData, { header: columnOrder });
+      
+      // 컬럼 너비 설정
+      const colWidths = [
+        { wch: 30 }, // uid
+        { wch: 15 }, // 이름
+        { wch: 12 }, // 현재학번
+        { wch: 12 }  // 새학번
+      ];
+      ws['!cols'] = colWidths;
+      
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '학생정보');
+      
+      // 파일명: 학생정보_YYYYMMDD.xlsx
+      const fileName = `학생정보_${new Date().toISOString().split('T')[0].replace(/-/g, '')}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      await Swal.fire({
+        title: '다운로드 완료',
+        text: `학생 정보 파일이 다운로드되었습니다. (${studentsData.length}명)`,
+        icon: 'success'
+      });
+      
+      setShowNewSemesterDialog(false);
+    } catch (error) {
+      console.error('학생 정보 다운로드 오류:', error);
+      await Swal.fire({
+        title: '오류',
+        text: '학생 정보 다운로드 중 오류가 발생했습니다: ' + error.message,
+        icon: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 새학기 학적 변동 업로드
+  const handleNewSemesterUpload = async (file) => {
+    if (!file) return;
+    
+    try {
+      setLoading(true);
+      
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const uploadedData = XLSX.utils.sheet_to_json(worksheet);
+          
+          console.log('업로드된 데이터:', uploadedData);
+          
+          // 현재 학년도/학기 계산
+          let { academicYear, semester } = getCurrentAcademicYearAndSemester();
+          
+          // 새학기 타입에 따라 학년도/학기 조정
+          if (newSemesterType === 'new_year') {
+            // 2학기 → 1학기 (새 학년도, 학년 +1)
+            academicYear = (parseInt(academicYear) + 1).toString();
+            semester = "1";
+          } else {
+            // 1학기 → 2학기 (같은 학년도)
+            semester = "2";
+          }
+          
+          // 기존 학생 정보 조회 (검증용)
+          const studentsRef = collection(db, 'accounts');
+          const studentsQuery = query(studentsRef, where('role', '==', 'student'));
+          const studentsSnapshot = await getDocs(studentsQuery);
+          const existingStudents = {};
+          studentsSnapshot.forEach(doc => {
+            existingStudents[doc.id] = doc.data();
+          });
+          
+          // 검증 및 데이터 준비
+          const studentsToUpdate = [];
+          const studentsToCreate = [];
+          const errors = [];
+          const uploadedUids = new Set();
+          const newStudentNumbers = new Set();
+          
+          for (let i = 0; i < uploadedData.length; i++) {
+            const row = uploadedData[i];
+            const uid = row.uid || row.UID || '';
+            const name = row.이름 || row.name || '';
+            const currentNumber = row.현재학번 || row.currentStudentNumber || '';
+            const newNumber = row.새학번 || row.newStudentNumber || '';
+            
+            // 필수 필드 검증
+            if (!name || !newNumber) {
+              errors.push(`행 ${i + 2}: 이름과 새학번은 필수입니다.`);
+              continue;
+            }
+            
+            // 새학번 형식 검증
+            if (String(newNumber).length !== 5) {
+              errors.push(`행 ${i + 2}: 새학번은 5자리여야 합니다. (${newNumber})`);
+              continue;
+            }
+            
+            // 새학번 중복 확인
+            if (newStudentNumbers.has(newNumber)) {
+              errors.push(`행 ${i + 2}: 새학번이 중복됩니다. (${newNumber})`);
+              continue;
+            }
+            newStudentNumbers.add(newNumber);
+            
+            // 기존 학생인 경우
+            if (uid) {
+              uploadedUids.add(uid);
+              
+              // uid와 이름 일치 확인
+              const existingStudent = existingStudents[uid];
+              if (!existingStudent) {
+                errors.push(`행 ${i + 2}: UID가 존재하지 않습니다. (${uid})`);
+                continue;
+              }
+              
+              if (existingStudent.name !== name) {
+                errors.push(`행 ${i + 2}: 이름이 일치하지 않습니다. (기존: ${existingStudent.name}, 입력: ${name})`);
+                continue;
+              }
+              
+              if (existingStudent.studentNumber !== currentNumber) {
+                errors.push(`행 ${i + 2}: 현재학번이 일치하지 않습니다. (기존: ${existingStudent.studentNumber}, 입력: ${currentNumber})`);
+                continue;
+              }
+              
+              // 새학번 파싱
+              let parsed;
+              try {
+                parsed = parseStudentNumber(newNumber);
+              } catch (parseError) {
+                errors.push(`행 ${i + 2}: 새학번 형식 오류 - ${parseError.message}`);
+                continue;
+              }
+              
+              studentsToUpdate.push({
+                uid,
+                name,
+                currentNumber,
+                newNumber,
+                ...parsed
+              });
+            } else {
+              // 신규 학생
+              let parsed;
+              try {
+                parsed = parseStudentNumber(newNumber);
+              } catch (parseError) {
+                errors.push(`행 ${i + 2}: 새학번 형식 오류 - ${parseError.message}`);
+                continue;
+              }
+              
+              studentsToCreate.push({
+                name,
+                newNumber,
+                ...parsed
+              });
+            }
+          }
+          
+          // 오류가 있으면 전체 중단
+          if (errors.length > 0) {
+            await Swal.fire({
+              title: '검증 실패',
+              html: `<div style="text-align: left; max-height: 400px; overflow-y: auto;">${errors.map(e => `<p>${e}</p>`).join('')}</div>`,
+              icon: 'error',
+              width: '600px'
+            });
+            setLoading(false);
+            return;
+          }
+          
+          // 트랜잭션으로 모든 변경사항 처리
+          const batch = writeBatch(db);
+          
+          // 1. 현재 학생 정보를 student_history에 저장
+          for (const student of studentsToUpdate) {
+            const studentData = existingStudents[student.uid];
+            const historyRef = doc(collection(db, 'student_history'));
+            batch.set(historyRef, {
+              studentId: student.uid,
+              academicYear: studentData.currentAcademicYear || academicYear,
+              semester: studentData.currentSemester || semester,
+              grade: studentData.grade,
+              class: studentData.class,
+              number: studentData.number,
+              studentNumber: studentData.studentNumber,
+              homeroomTeacherId: studentData.homeroomTeacherId || null,
+              startDate: studentData.createdAt?.toDate?.() || new Date(),
+              endDate: new Date(),
+              createdAt: new Date()
+            });
+          }
+          
+          // 2. 현재 클래스 정보를 class_history에 저장
+          const classesRef = collection(db, 'classes');
+          const classesSnapshot = await getDocs(classesRef);
+          const classMap = new Map();
+          classesSnapshot.forEach(doc => {
+            const classData = doc.data();
+            if (classData.academicYear === (existingStudents[studentsToUpdate[0]?.uid]?.currentAcademicYear || academicYear) &&
+                classData.semester === (existingStudents[studentsToUpdate[0]?.uid]?.currentSemester || semester)) {
+              const historyRef = doc(collection(db, 'class_history'));
+              batch.set(historyRef, {
+                classId: doc.id,
+                academicYear: classData.academicYear,
+                semester: classData.semester,
+                grade: classData.grade,
+                class: classData.class,
+                name: classData.name,
+                homeroomTeacherId: classData.homeroomTeacherId || null,
+                homeroomTeacherName: classData.homeroomTeacherName || null,
+                studentCount: classData.students?.length || 0,
+                startDate: classData.createdAt?.toDate?.() || new Date(),
+                endDate: new Date(),
+                createdAt: new Date()
+              });
+            }
+          });
+          
+          // 3. 전출 학생 처리 (XLSX에 없는 학생)
+          const allActiveStudentIds = Object.keys(existingStudents).filter(uid => existingStudents[uid].status === 'active');
+          const transferredIds = allActiveStudentIds.filter(uid => !uploadedUids.has(uid));
+          for (const uid of transferredIds) {
+            const studentData = existingStudents[uid];
+            const studentRef = doc(db, 'accounts', uid);
+            batch.update(studentRef, {
+              status: 'transferred',
+              transferredAt: new Date(),
+              updatedAt: new Date()
+            });
+            
+            const historyRef = doc(collection(db, 'student_history'));
+            batch.set(historyRef, {
+              studentId: uid,
+              academicYear: studentData.currentAcademicYear || academicYear,
+              semester: studentData.currentSemester || semester,
+              grade: studentData.grade,
+              class: studentData.class,
+              number: studentData.number,
+              studentNumber: studentData.studentNumber,
+              status: 'transferred',
+              transferredAt: new Date(),
+              createdAt: new Date()
+            });
+          }
+          
+          // 4. 기존 학생 정보 업데이트
+          for (const student of studentsToUpdate) {
+            const studentRef = doc(db, 'accounts', student.uid);
+            batch.update(studentRef, {
+              grade: student.grade,
+              class: student.class,
+              number: student.number,
+              studentNumber: student.newNumber,
+              currentAcademicYear: academicYear,
+              currentSemester: semester,
+              updatedAt: new Date()
+            });
+          }
+          
+          // 5. 신규 학생 생성
+          const newStudentIds = [];
+          for (const student of studentsToCreate) {
+            const newUid = `student_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const studentRef = doc(db, 'accounts', newUid);
+            batch.set(studentRef, {
+              uid: newUid,
+              name: student.name,
+              email: '',
+              role: 'student',
+              grade: student.grade,
+              class: student.class,
+              number: student.number,
+              studentNumber: student.newNumber,
+              currentAcademicYear: academicYear,
+              currentSemester: semester,
+              status: 'active',
+              cumulativeScore: 0,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+            newStudentIds.push(newUid);
+          }
+          
+          // 6. 기존 클래스 삭제 (새 학기이므로)
+          classesSnapshot.forEach(doc => {
+            batch.delete(doc.ref);
+          });
+          
+          // 7. 새 클래스 생성 (학생들을 학년-반별로 그룹화)
+          const classGroups = new Map();
+          [...studentsToUpdate, ...studentsToCreate.map((s, idx) => ({ ...s, uid: newStudentIds[idx] }))].forEach(student => {
+            const key = `${student.grade}-${student.class}`;
+            if (!classGroups.has(key)) {
+              classGroups.set(key, []);
+            }
+            classGroups.get(key).push(student.uid);
+          });
+          
+          const createdClassesList = [];
+          classGroups.forEach((studentIds, key) => {
+            const [grade, classNum] = key.split('-').map(Number);
+            const classId = `class_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const classRef = doc(db, 'classes', classId);
+            batch.set(classRef, {
+              id: classId,
+              grade: grade,
+              class: classNum,
+              name: `${grade}학년 ${classNum}반`,
+              academicYear: academicYear,
+              semester: semester,
+              homeroomTeacherId: null,
+              homeroomTeacherName: null,
+              studentCount: studentIds.length,
+              students: studentIds,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+            createdClassesList.push({
+              id: classId,
+              grade,
+              class: classNum,
+              name: `${grade}학년 ${classNum}반`,
+              studentCount: studentIds.length
+            });
+          });
+          
+          // 8. academic_settings 업데이트
+          const settingsRef = doc(db, 'academic_settings', 'current');
+          batch.set(settingsRef, {
+            currentAcademicYear: academicYear,
+            currentSemester: semester,
+            semester1Start: `${academicYear}-03-01`,
+            semester1End: `${academicYear}-08-31`,
+            semester2Start: `${academicYear}-09-01`,
+            semester2End: `${parseInt(academicYear) + 1}-02-28`,
+            updatedAt: new Date(),
+            updatedBy: currentUser.uid
+          }, { merge: true });
+          
+          // 모든 변경사항 커밋
+          await batch.commit();
+          
+          // 생성된 클래스 저장
+          setCreatedClasses(createdClassesList);
+          
+          // 로그 기록
+          await logSystemAction(
+            currentUser,
+            LOG_CATEGORIES.SYSTEM_MANAGEMENT.middle.UPDATE,
+            '새학기 학적 변동',
+            `학생 업데이트: ${studentsToUpdate.length}명, 신규: ${studentsToCreate.length}명, 전출: ${transferredIds.length}명, 클래스 생성: ${createdClassesList.length}개`
+          );
+          
+          await Swal.fire({
+            title: '업로드 완료',
+            html: `
+              <div style="text-align: left;">
+                <p><strong>학적 변동이 완료되었습니다.</strong></p>
+                <p>업데이트: ${studentsToUpdate.length}명</p>
+                <p>신규: ${studentsToCreate.length}명</p>
+                <p>전출: ${transferredIds.length}명</p>
+                <p>생성된 클래스: ${createdClassesList.length}개</p>
+              </div>
+            `,
+            icon: 'success'
+          });
+          
+          // 담임교사 할당 모달 표시
+          setShowTeacherAssignmentDialog(true);
+          
+        } catch (error) {
+          console.error('학적 변동 처리 오류:', error);
+          await Swal.fire({
+            title: '오류',
+            text: '학적 변동 처리 중 오류가 발생했습니다: ' + error.message,
+            icon: 'error'
+          });
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      reader.readAsArrayBuffer(file);
+    } catch (error) {
+      console.error('파일 읽기 오류:', error);
+      setLoading(false);
+      await Swal.fire({
+        title: '오류',
+        text: '파일 읽기 중 오류가 발생했습니다: ' + error.message,
+        icon: 'error'
       });
     }
   };
@@ -3286,13 +4230,78 @@ const AdminDashboard = () => {
     return `${teacher.name} (${teacher.email})`;
   };
 
+  // 상벌점 내역 정렬 상태
+  const [meritRecordSortConfig, setMeritRecordSortConfig] = useState({
+    key: 'createdAt',
+    direction: 'desc'
+  });
+
+  // 상벌점 내역 정렬 함수
+  const handleMeritRecordSort = (key) => {
+    setMeritRecordSortConfig(prevConfig => ({
+      key,
+      direction: prevConfig.key === key && prevConfig.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  // 정렬된 상벌점 내역
+  const sortedMeritRecords = useMemo(() => {
+    if (!meritRecords || meritRecords.length === 0) return [];
+    
+    return [...meritRecords].sort((a, b) => {
+      const { key, direction } = meritRecordSortConfig;
+      let aValue, bValue;
+      
+      switch (key) {
+        case 'studentName':
+          aValue = a.studentName || '';
+          bValue = b.studentName || '';
+          break;
+        case 'processedTeacher':
+          aValue = a.processedTeacherName || a.teacherName || a.creatorName || '';
+          bValue = b.processedTeacherName || b.teacherName || b.creatorName || '';
+          break;
+        case 'requestingTeacher':
+          aValue = a.requestingTeacherName || '';
+          bValue = b.requestingTeacherName || '';
+          break;
+        case 'points':
+          aValue = a.points || 0;
+          bValue = b.points || 0;
+          break;
+        case 'cumulativeScore':
+          const aStudent = students.find(s => s.id === a.studentId);
+          const bStudent = students.find(s => s.id === b.studentId);
+          aValue = aStudent?.cumulativeScore || 0;
+          bValue = bStudent?.cumulativeScore || 0;
+          break;
+        case 'status':
+          aValue = a.status || '';
+          bValue = b.status || '';
+          break;
+        case 'createdAt':
+        default:
+          const aDate = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
+          const bDate = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
+          aValue = aDate;
+          bValue = bDate;
+          break;
+      }
+      
+      if (aValue < bValue) return direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [meritRecords, meritRecordSortConfig, students]);
+
   // 사이드바 메뉴 아이템
   const sidebarItems = [
     { text: '클래스 관리', icon: <ClassIcon />, value: 0 },
     { text: '교사 관리', icon: <PersonIcon />, value: 1 },
     { text: '학생 관리', icon: <GroupIcon />, value: 2 },
     { text: '시스템 로그', icon: <DashboardIcon />, value: 3 },
-    { text: '최고 관리자 전용 기능', icon: <AdminIcon />, value: 4 }
+    { text: '상벌점 내역', icon: <AssessmentIcon />, value: 4 },
+    { text: '최고 관리자 전용 기능', icon: <AdminIcon />, value: 5 }
   ];
 
   if (!currentUser || currentUser.role !== 'super_admin') {
@@ -3524,34 +4533,34 @@ const AdminDashboard = () => {
           {tabValue === 0 && (
             <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%', mt: 1 }}>
               <Box sx={{ 
-                display: 'flex', 
-                flexDirection: isMobileOrSmaller ? 'column' : 'row',
-                justifyContent: 'space-between', 
-                alignItems: isMobileOrSmaller ? 'stretch' : 'center', 
-                mb: 2,
-                gap: isMobileOrSmaller ? 1 : 0
-              }}>
-                <TextField
-                  label="클래스 검색"
-                  variant="outlined"
-                  size="small"
-                  value={classSearchTerm}
-                  onChange={(e) => setClassSearchTerm(e.target.value)}
-                  placeholder="클래스명, 학년, 반으로 검색"
-                  sx={{ minWidth: isMobileOrSmaller ? '100%' : 300 }}
-                />
-                <Button
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={() => setShowClassDialog(true)}
-                  size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
-                  fullWidth={isMobileOrSmaller}
-                >
-                  클래스 추가
-                </Button>
-              </Box>
-              
-              <div className="table-scroll-container">
+                    display: 'flex', 
+                    flexDirection: isMobileOrSmaller ? 'column' : 'row',
+                    justifyContent: 'space-between', 
+                    alignItems: isMobileOrSmaller ? 'stretch' : 'center', 
+                    mb: 2,
+                    gap: isMobileOrSmaller ? 1 : 0
+                  }}>
+                    <TextField
+                      label="클래스 검색"
+                      variant="outlined"
+                      size="small"
+                      value={classSearchTerm}
+                      onChange={(e) => setClassSearchTerm(e.target.value)}
+                      placeholder="클래스명, 학년, 반으로 검색"
+                      sx={{ minWidth: isMobileOrSmaller ? '100%' : 300 }}
+                    />
+                    <Button
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={() => setShowClassDialog(true)}
+                      size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
+                      fullWidth={isMobileOrSmaller}
+                    >
+                      클래스 추가
+                    </Button>
+                  </Box>
+                  
+                  <div className="table-scroll-container">
                 <TableContainer component={Paper}>
                   <Table>
                     <TableHead>
@@ -3728,7 +4737,17 @@ const AdminDashboard = () => {
                               {teacher.role === 'homeroom_teacher' 
                                 ? (assignedClass ? assignedClass.name : '할당되지 않음')
                                 : assignedClasses.length > 0 
-                                  ? assignedClasses.map(c => c.name).join(', ')
+                                  ? assignedClasses
+                                      .sort((a, b) => {
+                                        // 학년 순서로 먼저 정렬
+                                        if (a.grade !== b.grade) {
+                                          return a.grade - b.grade;
+                                        }
+                                        // 같은 학년이면 반 순서로 정렬
+                                        return a.class - b.class;
+                                      })
+                                      .map(c => c.name)
+                                      .join(', ')
                                   : '할당되지 않음'
                               }
                             </TableCell>
@@ -4016,6 +5035,139 @@ const AdminDashboard = () => {
           )}
 
           {tabValue === 4 && (
+            <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%', mt: 1 }}>
+              <Typography variant={isMobileOrSmaller ? "h6" : "h5"} sx={{ mb: 2, fontWeight: 'bold' }}>
+                상벌점 내역
+              </Typography>
+              
+              <div className="table-scroll-container">
+                <TableContainer component={Paper}>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', fontWeight: 'bold' }}
+                          onClick={() => handleMeritRecordSort('studentName')}
+                        >
+                          학생 이름 {meritRecordSortConfig.key === 'studentName' && (meritRecordSortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </TableCell>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', fontWeight: 'bold', display: isMobileOrSmaller ? 'none' : 'table-cell' }}
+                          onClick={() => handleMeritRecordSort('processedTeacher')}
+                        >
+                          처리 교사 {meritRecordSortConfig.key === 'processedTeacher' && (meritRecordSortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </TableCell>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', fontWeight: 'bold', display: isMobileOrSmaller ? 'none' : 'table-cell' }}
+                          onClick={() => handleMeritRecordSort('requestingTeacher')}
+                        >
+                          요청 교사 {meritRecordSortConfig.key === 'requestingTeacher' && (meritRecordSortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </TableCell>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', fontWeight: 'bold' }}
+                          onClick={() => handleMeritRecordSort('points')}
+                        >
+                          처리 점수 {meritRecordSortConfig.key === 'points' && (meritRecordSortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </TableCell>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', fontWeight: 'bold' }}
+                          onClick={() => handleMeritRecordSort('cumulativeScore')}
+                        >
+                          누적 점수 {meritRecordSortConfig.key === 'cumulativeScore' && (meritRecordSortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </TableCell>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', fontWeight: 'bold' }}
+                          onClick={() => handleMeritRecordSort('status')}
+                        >
+                          상태 {meritRecordSortConfig.key === 'status' && (meritRecordSortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </TableCell>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', fontWeight: 'bold', display: isMobileOrSmaller ? 'none' : 'table-cell' }}
+                          onClick={() => handleMeritRecordSort('createdAt')}
+                        >
+                          처리일시 {meritRecordSortConfig.key === 'createdAt' && (meritRecordSortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {sortedMeritRecords.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} align="center" sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
+                            상벌점 내역이 없습니다.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        sortedMeritRecords.map((record) => {
+                          const student = students.find(s => s.id === record.studentId);
+                          const studentCumulativeScore = student?.cumulativeScore || 0;
+                          
+                          return (
+                            <TableRow key={record.id}>
+                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
+                                <Button
+                                  variant="text"
+                                  onClick={() => {
+                                    setSelectedMeritRecord(record);
+                                    setShowMeritRecordDetailDialog(true);
+                                  }}
+                                  sx={{ 
+                                    textTransform: 'none', 
+                                    fontWeight: 'bold',
+                                    color: 'primary.main',
+                                    '&:hover': { textDecoration: 'underline' },
+                                    fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
+                                    p: isMobileOrSmaller ? 0.5 : 1
+                                  }}
+                                >
+                                  {record.studentName || student?.name || '알 수 없음'}
+                                </Button>
+                              </TableCell>
+                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>
+                                {record.processedTeacherName || record.teacherName || record.creatorName || 'N/A'}
+                              </TableCell>
+                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>
+                                {record.requestingTeacherName || '-'}
+                              </TableCell>
+                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
+                                <Chip
+                                  label={record.points > 0 ? `+${record.points}` : record.points}
+                                  color={record.points > 0 ? 'success' : 'error'}
+                                  size="small"
+                                />
+                              </TableCell>
+                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
+                                <Chip
+                                  label={studentCumulativeScore}
+                                  color={studentCumulativeScore > 0 ? 'success' : studentCumulativeScore < 0 ? 'error' : 'default'}
+                                  size="small"
+                                />
+                              </TableCell>
+                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
+                                <Chip
+                                  label={record.status === 'approved' ? '수락' : record.status === 'rejected' ? '거절' : record.status === 'pending' ? '대기' : '완료'}
+                                  color={record.status === 'approved' ? 'success' : record.status === 'rejected' ? 'error' : record.status === 'pending' ? 'warning' : 'default'}
+                                  size="small"
+                                />
+                              </TableCell>
+                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>
+                                {record.createdAt?.toDate?.() 
+                                  ? new Date(record.createdAt.toDate()).toLocaleString('ko-KR')
+                                  : record.createdAt 
+                                    ? new Date(record.createdAt).toLocaleString('ko-KR')
+                                    : 'N/A'}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </div>
+            </Box>
+          )}
+
+          {tabValue === 5 && (
             <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%' }}>
               <Box sx={{ 
                 display: 'flex', 
@@ -4058,10 +5210,39 @@ const AdminDashboard = () => {
                 </Typography>
               </Alert>
 
-              <Grid container spacing={isMobileOrSmaller ? 2 : 3}>
-                {/* 학생 전체 삭제 */}
-                <Grid item xs={12} md={6}>
-                  <Card sx={{ height: '100%', border: '2px solid #d32f2f' }}>
+              {/* 삭제 기능 영역 - 모바일에서 가로 스크롤 */}
+              <Box sx={{ 
+                overflowX: 'auto',
+                overflowY: 'hidden',
+                mb: 3,
+                '&::-webkit-scrollbar': {
+                  height: '8px',
+                },
+                '&::-webkit-scrollbar-track': {
+                  backgroundColor: '#f1f1f1',
+                  borderRadius: '4px',
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  backgroundColor: '#888',
+                  borderRadius: '4px',
+                },
+                '&::-webkit-scrollbar-thumb:hover': {
+                  backgroundColor: '#555',
+                },
+              }}>
+                <Box sx={{ 
+                  display: 'flex', 
+                  gap: 2, 
+                  minWidth: isMobileOrSmaller ? 'max-content' : 'auto',
+                  pb: 1
+                }}>
+                  {/* 학생 전체 삭제 */}
+                  <Card sx={{ 
+                    minWidth: isMobileOrSmaller ? '300px' : 'auto',
+                    flex: isMobileOrSmaller ? '0 0 auto' : '1 1 0',
+                    height: '100%', 
+                    border: '2px solid #d32f2f' 
+                  }}>
                     <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                         <DeleteForeverIcon sx={{ color: '#d32f2f', mr: 1, fontSize: isMobileOrSmaller ? 24 : 28 }} />
@@ -4107,11 +5288,14 @@ const AdminDashboard = () => {
                       </Button>
                     </CardContent>
                   </Card>
-                </Grid>
 
-                {/* 교사 전체 삭제 */}
-                <Grid item xs={12} md={6}>
-                  <Card sx={{ height: '100%', border: '2px solid #d32f2f' }}>
+                  {/* 교사 전체 삭제 */}
+                  <Card sx={{ 
+                    minWidth: isMobileOrSmaller ? '300px' : 'auto',
+                    flex: isMobileOrSmaller ? '0 0 auto' : '1 1 0',
+                    height: '100%', 
+                    border: '2px solid #d32f2f' 
+                  }}>
                     <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                         <DeleteForeverIcon sx={{ color: '#d32f2f', mr: 1, fontSize: isMobileOrSmaller ? 24 : 28 }} />
@@ -4157,17 +5341,186 @@ const AdminDashboard = () => {
                       </Button>
                     </CardContent>
                   </Card>
-                </Grid>
-            </Grid>
+
+                  {/* 상벌점 내역 초기화 */}
+                  <Card sx={{ 
+                    minWidth: isMobileOrSmaller ? '300px' : 'auto',
+                    flex: isMobileOrSmaller ? '0 0 auto' : '1 1 0',
+                    height: '100%', 
+                    border: '2px solid #ff9800' 
+                  }}>
+                    <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                        <RefreshIcon sx={{ color: '#ff9800', mr: 1, fontSize: isMobileOrSmaller ? 24 : 28 }} />
+                        <Typography variant={isMobileOrSmaller ? "body1" : "h6"} sx={{ color: '#ff9800', fontWeight: 'bold' }}>
+                          상벌점 내역 초기화
+                        </Typography>
+                      </Box>
+                      
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        모든 학생의 상벌점 기록을 영구적으로 삭제합니다.
+                      </Typography>
+                      
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="subtitle2" gutterBottom>
+                          삭제되는 데이터:
+                        </Typography>
+                        <ul style={{ margin: 0, paddingLeft: 20 }}>
+                          <li>모든 상벌점 기록</li>
+                          <li>상벌점 요청 내역</li>
+                          <li>학생들의 누적 점수</li>
+                        </ul>
+                      </Box>
+                      
+                      <Typography variant="body2" color="warning.main" sx={{ mb: 2, fontWeight: 'bold' }}>
+                        현재 상벌점 기록 수: {meritRecords.length}개
+                      </Typography>
+                      
+                      <Button
+                        variant="contained"
+                        color="warning"
+                        fullWidth
+                        startIcon={<RefreshIcon />}
+                        onClick={handleResetAllMeritRecords}
+                        sx={{ 
+                          fontWeight: 'bold',
+                          backgroundColor: '#ff9800',
+                          '&:hover': {
+                            backgroundColor: '#f57c00'
+                          }
+                        }}
+                        size={isMobileOrSmaller ? "small" : "medium"}
+                      >
+                        상벌점 내역 초기화
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  {/* 새학기 시작 */}
+                  <Card sx={{ 
+                    minWidth: isMobileOrSmaller ? '300px' : 'auto',
+                    flex: isMobileOrSmaller ? '0 0 auto' : '1 1 0',
+                    height: '100%', 
+                    border: '2px solid #1976d2' 
+                  }}>
+                    <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                        <SchoolIcon sx={{ color: '#1976d2', mr: 1, fontSize: isMobileOrSmaller ? 24 : 28 }} />
+                        <Typography variant={isMobileOrSmaller ? "body1" : "h6"} sx={{ color: '#1976d2', fontWeight: 'bold' }}>
+                          새학기 시작
+                        </Typography>
+                      </Box>
+                      
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        새 학기 시작을 위한 학적 변동을 처리합니다.
+                      </Typography>
+                      
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="subtitle2" gutterBottom>
+                          기능:
+                        </Typography>
+                        <ul style={{ margin: 0, paddingLeft: 20 }}>
+                          <li>학생 정보 다운로드</li>
+                          <li>학적 변동 업로드</li>
+                          <li>클래스 자동 생성</li>
+                          <li>담임교사 할당</li>
+                        </ul>
+                      </Box>
+                      
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        fullWidth
+                        startIcon={<SchoolIcon />}
+                        onClick={() => {
+                          setShowNewSemesterDialog(true);
+                          // 업로드 버튼 트리거를 위한 이벤트 리스너 추가
+                          setTimeout(() => {
+                            const uploadTrigger = document.getElementById('new-semester-upload-trigger');
+                            if (uploadTrigger) {
+                              uploadTrigger.onclick = () => {
+                                document.getElementById('new-semester-upload')?.click();
+                              };
+                            }
+                          }, 100);
+                        }}
+                        sx={{ 
+                          fontWeight: 'bold',
+                          '&:hover': {
+                            backgroundColor: '#1565c0'
+                          }
+                        }}
+                        size={isMobileOrSmaller ? "small" : "medium"}
+                      >
+                        새학기 시작
+                      </Button>
+                      
+                      <input
+                        accept=".xlsx"
+                        style={{ display: 'none' }}
+                        id="new-semester-upload-inline"
+                        type="file"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleNewSemesterUpload(e.target.files[0]);
+                          }
+                        }}
+                      />
+                      <label htmlFor="new-semester-upload-inline">
+                        <Button
+                          variant="outlined"
+                          color="primary"
+                          component="span"
+                          startIcon={<FileUploadIcon />}
+                          fullWidth
+                          sx={{ mt: 1 }}
+                          size={isMobileOrSmaller ? "small" : "medium"}
+                        >
+                          새학기 학적 변동 업로드
+                        </Button>
+                      </label>
+                    </CardContent>
+                  </Card>
+                </Box>
+              </Box>
 
             {/* 상벌점 사유 관리 */}
             <Typography variant={isMobileOrSmaller ? "body1" : "h6"} gutterBottom sx={{ mt: 4, mb: 2, color: '#1976d2' }}>
               📝 상벌점 사유 관리
             </Typography>
             
-            <Grid container spacing={isMobileOrSmaller ? 2 : 3} sx={{ mb: 4 }}>
-              <Grid item xs={12} md={6}>
-                <Card sx={{ height: '100%', border: '1px solid #1976d2' }}>
+            {/* 상벌점 사유 관리 영역 - 모바일에서 가로 스크롤 */}
+            <Box sx={{ 
+              overflowX: 'auto',
+              overflowY: 'hidden',
+              mb: 4,
+              '&::-webkit-scrollbar': {
+                height: '8px',
+              },
+              '&::-webkit-scrollbar-track': {
+                backgroundColor: '#f1f1f1',
+                borderRadius: '4px',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                backgroundColor: '#888',
+                borderRadius: '4px',
+              },
+              '&::-webkit-scrollbar-thumb:hover': {
+                backgroundColor: '#555',
+              },
+            }}>
+              <Box sx={{ 
+                display: 'flex', 
+                gap: 2, 
+                minWidth: isMobileOrSmaller ? 'max-content' : 'auto',
+                pb: 1
+              }}>
+                <Card sx={{ 
+                  minWidth: isMobileOrSmaller ? '300px' : 'auto',
+                  flex: isMobileOrSmaller ? '0 0 auto' : '1 1 0',
+                  height: '100%', 
+                  border: '1px solid #1976d2' 
+                }}>
                   <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                       <Typography variant={isMobileOrSmaller ? "body1" : "h6"} sx={{ color: '#1976d2', fontWeight: 'bold' }}>
@@ -4201,10 +5554,13 @@ const AdminDashboard = () => {
                     </Button>
                   </CardContent>
                 </Card>
-              </Grid>
-              
-              <Grid item xs={12} md={6}>
-                <Card sx={{ height: '100%', border: '1px solid #d32f2f' }}>
+                
+                <Card sx={{ 
+                  minWidth: isMobileOrSmaller ? '300px' : 'auto',
+                  flex: isMobileOrSmaller ? '0 0 auto' : '1 1 0',
+                  height: '100%', 
+                  border: '1px solid #d32f2f' 
+                }}>
                   <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                       <Typography variant={isMobileOrSmaller ? "body1" : "h6"} sx={{ color: '#d32f2f', fontWeight: 'bold' }}>
@@ -4238,18 +5594,47 @@ const AdminDashboard = () => {
                     </Button>
                   </CardContent>
                 </Card>
-              </Grid>
-            </Grid>
+              </Box>
+            </Box>
 
             {/* CSV 데이터 관리 */}
             <Typography variant={isMobileOrSmaller ? "body1" : "h6"} gutterBottom sx={{ mt: 4, mb: 2, color: '#1976d2' }}>
               📊 CSV 데이터 관리
             </Typography>
             
-            <Grid container spacing={isMobileOrSmaller ? 2 : 3}>
-              {/* CSV 다운로드 */}
-              <Grid item xs={12} md={4}>
-                <Card sx={{ height: '100%', border: '1px solid #1976d2' }}>
+            {/* CSV 데이터 관리 영역 - 모바일에서 가로 스크롤 */}
+            <Box sx={{ 
+              overflowX: 'auto',
+              overflowY: 'hidden',
+              mb: 3,
+              '&::-webkit-scrollbar': {
+                height: '8px',
+              },
+              '&::-webkit-scrollbar-track': {
+                backgroundColor: '#f1f1f1',
+                borderRadius: '4px',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                backgroundColor: '#888',
+                borderRadius: '4px',
+              },
+              '&::-webkit-scrollbar-thumb:hover': {
+                backgroundColor: '#555',
+              },
+            }}>
+              <Box sx={{ 
+                display: 'flex', 
+                gap: 2, 
+                minWidth: isMobileOrSmaller ? 'max-content' : 'auto',
+                pb: 1
+              }}>
+                {/* CSV 다운로드 */}
+                <Card sx={{ 
+                  minWidth: isMobileOrSmaller ? '300px' : 'auto',
+                  flex: isMobileOrSmaller ? '0 0 auto' : '1 1 0',
+                  height: '100%', 
+                  border: '1px solid #1976d2' 
+                }}>
                   <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                       <CloudDownloadIcon sx={{ color: '#1976d2', mr: 1, fontSize: isMobileOrSmaller ? 24 : 28 }} />
@@ -4310,11 +5695,14 @@ const AdminDashboard = () => {
                     </Box>
                   </CardContent>
                 </Card>
-              </Grid>
 
-              {/* CSV 업로드 */}
-              <Grid item xs={12} md={4}>
-                <Card sx={{ height: '100%', border: '1px solid #ff9800' }}>
+                {/* CSV 업로드 */}
+                <Card sx={{ 
+                  minWidth: isMobileOrSmaller ? '300px' : 'auto',
+                  flex: isMobileOrSmaller ? '0 0 auto' : '1 1 0',
+                  height: '100%', 
+                  border: '1px solid #ff9800' 
+                }}>
                   <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                       <FileUploadIcon sx={{ color: '#ff9800', mr: 1, fontSize: isMobileOrSmaller ? 24 : 28 }} />
@@ -4370,10 +5758,8 @@ const AdminDashboard = () => {
                     </Box>
                   </CardContent>
                 </Card>
-              </Grid>
-
-              {/* 초기화 요청 */}
-            </Grid>
+              </Box>
+            </Box>
 
             {/* 추가 안전 장치 */}
             <Card sx={{ mt: 3, backgroundColor: '#fff3e0' }}>
@@ -4393,7 +5779,7 @@ const AdminDashboard = () => {
           </Box>
         )}
 
-          {/* 다이얼로그들 */}
+        {/* 다이얼로그들 */}
           {/* 클래스 추가/수정 다이얼로그 */}
           <Dialog open={showClassDialog} onClose={() => {
             setShowClassDialog(false);
@@ -4402,78 +5788,79 @@ const AdminDashboard = () => {
           }} maxWidth="md" fullWidth>
             <DialogTitle>{editingItem ? '클래스 수정' : '클래스 추가'}</DialogTitle>
             <DialogContent>
-              <Grid container spacing={3} sx={{ mt: 1 }}>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="클래스명"
-                    value={classForm.name || ''}
-                    InputProps={{
-                      readOnly: true,
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1, maxWidth: '500px', mx: 'auto' }}>
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                    클래스명
+                  </Typography>
+                  <Typography 
+                    variant="h6" 
+                    sx={{ 
+                      fontWeight: 'bold',
+                      color: 'primary.main',
+                      p: 2,
+                      backgroundColor: '#f5f5f5',
+                      borderRadius: 1,
+                      border: '1px solid #e0e0e0'
                     }}
-                    helperText="클래스명은 학년과 반으로 자동 생성됩니다"
+                  >
+                    {classForm.name || (classForm.grade && classForm.class ? `${classForm.grade}학년 ${classForm.class}반` : '학년과 반을 입력하면 자동으로 생성됩니다')}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                    클래스명은 학년과 반으로 자동 생성됩니다
+                  </Typography>
+                </Box>
+                <TextField
+                  fullWidth
+                  label="학년"
+                  type="number"
+                  value={classForm.grade || ''}
+                  onChange={(e) => setClassForm({...classForm, grade: parseInt(e.target.value)})}
+                  required
+                  size="medium"
+                />
+                <TextField
+                  fullWidth
+                  label="반"
+                  type="number"
+                  value={classForm.class || ''}
+                  onChange={(e) => setClassForm({...classForm, class: parseInt(e.target.value)})}
+                  required
+                  size="medium"
+                />
+                <FormControl fullWidth>
+                  <InputLabel>담임교사</InputLabel>
+                  <Select
+                    value={classForm.homeroomTeacher || ''}
+                    onChange={(e) => setClassForm({...classForm, homeroomTeacher: e.target.value})}
+                    label="담임교사"
                     size="medium"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="학년"
-                    type="number"
-                    value={classForm.grade || ''}
-                    onChange={(e) => setClassForm({...classForm, grade: parseInt(e.target.value)})}
-                    required
+                  >
+                    <MenuItem value="">담임교사 선택</MenuItem>
+                    {teachers.filter(t => t.role === 'homeroom_teacher').map(teacher => (
+                      <MenuItem key={teacher.id} value={teacher.id}>
+                        {teacher.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth>
+                  <InputLabel>교과목 교사 (다중 선택 가능)</InputLabel>
+                  <Select
+                    multiple
+                    value={classForm.subjectTeachers || []}
+                    onChange={(e) => setClassForm({...classForm, subjectTeachers: e.target.value})}
+                    label="교과목 교사 (다중 선택 가능)"
                     size="medium"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="반"
-                    type="number"
-                    value={classForm.class || ''}
-                    onChange={(e) => setClassForm({...classForm, class: parseInt(e.target.value)})}
-                    required
-                    size="medium"
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <FormControl fullWidth>
-                    <InputLabel>담임교사</InputLabel>
-                    <Select
-                      value={classForm.homeroomTeacher || ''}
-                      onChange={(e) => setClassForm({...classForm, homeroomTeacher: e.target.value})}
-                      label="담임교사"
-                      size="medium"
-                    >
-                      <MenuItem value="">담임교사 선택</MenuItem>
-                      {teachers.filter(t => t.role === 'homeroom_teacher').map(teacher => (
-                        <MenuItem key={teacher.id} value={teacher.id}>
-                          {teacher.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12}>
-                  <FormControl fullWidth>
-                    <InputLabel>교과목 교사 (다중 선택 가능)</InputLabel>
-                    <Select
-                      multiple
-                      value={classForm.subjectTeachers || []}
-                      onChange={(e) => setClassForm({...classForm, subjectTeachers: e.target.value})}
-                      label="교과목 교사 (다중 선택 가능)"
-                      size="medium"
-                    >
-                      {teachers.filter(t => t.role === 'subject_teacher').map(teacher => (
-                        <MenuItem key={teacher.id} value={teacher.id}>
-                          {teacher.name} ({teacher.subject || '과목 미지정'})
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-              </Grid>
+                  >
+                    {teachers.filter(t => t.role === 'subject_teacher').map(teacher => (
+                      <MenuItem key={teacher.id} value={teacher.id}>
+                        {teacher.name} ({teacher.subject || '과목 미지정'})
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => {
@@ -4496,68 +5883,58 @@ const AdminDashboard = () => {
                   {error}
                 </Alert>
               )}
-              <Grid container spacing={3} sx={{ mt: 1 }}>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="이름"
-                    value={teacherForm.name}
-                    onChange={(e) => setTeacherForm({...teacherForm, name: e.target.value})}
-                    required
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1, maxWidth: '500px', mx: 'auto' }}>
+                <TextField
+                  fullWidth
+                  label="이름"
+                  value={teacherForm.name}
+                  onChange={(e) => setTeacherForm({...teacherForm, name: e.target.value})}
+                  required
+                  size="medium"
+                />
+                <TextField
+                  fullWidth
+                  label="이메일"
+                  type="email"
+                  value={teacherForm.email}
+                  onChange={editingItem ? undefined : (e) => setTeacherForm({...teacherForm, email: e.target.value})}
+                  required
+                  size="medium"
+                  InputProps={{
+                    readOnly: editingItem ? true : false
+                  }}
+                  helperText={editingItem ? "이메일은 수정할 수 없습니다." : ""}
+                />
+                <FormControl fullWidth>
+                  <InputLabel>역할</InputLabel>
+                  <Select
+                    value={teacherForm.role}
+                    onChange={(e) => setTeacherForm({...teacherForm, role: e.target.value})}
+                    label="역할"
                     size="medium"
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="이메일"
-                    type="email"
-                    value={teacherForm.email}
-                    onChange={editingItem ? undefined : (e) => setTeacherForm({...teacherForm, email: e.target.value})}
-                    required
-                    size="medium"
-                    InputProps={{
-                      readOnly: editingItem ? true : false
-                    }}
-                    helperText={editingItem ? "이메일은 수정할 수 없습니다." : ""}
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <FormControl fullWidth>
-                    <InputLabel>역할</InputLabel>
-                    <Select
-                      value={teacherForm.role}
-                      onChange={(e) => setTeacherForm({...teacherForm, role: e.target.value})}
-                      label="역할"
-                      size="medium"
-                    >
-                      <MenuItem value="homeroom_teacher">담임교사</MenuItem>
-                      <MenuItem value="subject_teacher">교과목교사</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
+                  >
+                    <MenuItem value="homeroom_teacher">담임교사</MenuItem>
+                    <MenuItem value="subject_teacher">교과목교사</MenuItem>
+                  </Select>
+                </FormControl>
                 {teacherForm.role === 'subject_teacher' && (
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      label="담당 과목"
-                      value={teacherForm.subject}
-                      onChange={(e) => setTeacherForm({...teacherForm, subject: e.target.value})}
-                      required
-                      size="medium"
-                    />
-                  </Grid>
-                )}
-                <Grid item xs={12}>
                   <TextField
                     fullWidth
-                    label="전화번호"
-                    value={teacherForm.phone}
-                    onChange={(e) => setTeacherForm({...teacherForm, phone: e.target.value})}
+                    label="담당 과목"
+                    value={teacherForm.subject}
+                    onChange={(e) => setTeacherForm({...teacherForm, subject: e.target.value})}
+                    required
                     size="medium"
                   />
-                </Grid>
-              </Grid>
+                )}
+                <TextField
+                  fullWidth
+                  label="전화번호"
+                  value={teacherForm.phone}
+                  onChange={(e) => setTeacherForm({...teacherForm, phone: e.target.value})}
+                  size="medium"
+                />
+              </Box>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => {
@@ -4744,60 +6121,52 @@ const AdminDashboard = () => {
                   {error}
                 </Alert>
               )}
-              <Grid container spacing={3} sx={{ mt: 1 }}>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="이름"
-                    value={studentForm.name}
-                    onChange={(e) => setStudentForm({...studentForm, name: e.target.value})}
-                    required
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1, maxWidth: '500px', mx: 'auto' }}>
+                <TextField
+                  fullWidth
+                  label="이름"
+                  value={studentForm.name}
+                  onChange={(e) => setStudentForm({...studentForm, name: e.target.value})}
+                  required
+                  size="medium"
+                />
+                <FormControl fullWidth>
+                  <InputLabel>클래스 선택</InputLabel>
+                  <Select
+                    value={studentForm.selectedClassId}
+                    onChange={(e) => setStudentForm({...studentForm, selectedClassId: e.target.value})}
+                    label="클래스 선택"
                     size="medium"
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <FormControl fullWidth>
-                    <InputLabel>클래스 선택</InputLabel>
-                    <Select
-                      value={studentForm.selectedClassId}
-                      onChange={(e) => setStudentForm({...studentForm, selectedClassId: e.target.value})}
-                      label="클래스 선택"
-                      size="medium"
-                    >
-                      {classes.map(cls => (
-                        <MenuItem key={cls.id} value={cls.id}>
-                          {cls.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="번호"
-                    type="number"
-                    value={studentForm.number}
-                    onChange={(e) => setStudentForm({...studentForm, number: e.target.value})}
-                    required
-                    size="medium"
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="생년월일"
-                    type="date"
-                    value={studentForm.birthDate}
-                    onChange={(e) => setStudentForm({...studentForm, birthDate: e.target.value})}
-                    InputLabelProps={{
-                      shrink: true,
-                    }}
-                    required
-                    size="medium"
-                  />
-                </Grid>
-              </Grid>
+                  >
+                    {classes.map(cls => (
+                      <MenuItem key={cls.id} value={cls.id}>
+                        {cls.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <TextField
+                  fullWidth
+                  label="번호"
+                  type="number"
+                  value={studentForm.number}
+                  onChange={(e) => setStudentForm({...studentForm, number: e.target.value})}
+                  required
+                  size="medium"
+                />
+                <TextField
+                  fullWidth
+                  label="생년월일"
+                  type="date"
+                  value={studentForm.birthDate}
+                  onChange={(e) => setStudentForm({...studentForm, birthDate: e.target.value})}
+                  InputLabelProps={{
+                    shrink: true,
+                  }}
+                  required
+                  size="medium"
+                />
+              </Box>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => {
@@ -4821,32 +6190,30 @@ const AdminDashboard = () => {
               {meritReasonForm.type === 'merit' ? '상점 사유 추가' : '벌점 사유 추가'}
           </DialogTitle>
           <DialogContent>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12}>
-                <FormControl fullWidth>
-                    <InputLabel>유형</InputLabel>
-                  <Select
-                    value={meritReasonForm.type}
-                    onChange={(e) => setMeritReasonForm({...meritReasonForm, type: e.target.value})}
-                      label="유형"
-                  >
-                    <MenuItem value="merit">상점</MenuItem>
-                    <MenuItem value="demerit">벌점</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="사유"
-                  value={meritReasonForm.reason}
-                  onChange={(e) => setMeritReasonForm({...meritReasonForm, reason: e.target.value})}
-                    placeholder="사유를 입력하세요"
-                      multiline
-                      rows={3}
-                    />
-              </Grid>
-            </Grid>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1, maxWidth: '500px', mx: 'auto' }}>
+              <FormControl fullWidth>
+                <InputLabel>유형</InputLabel>
+                <Select
+                  value={meritReasonForm.type}
+                  onChange={(e) => setMeritReasonForm({...meritReasonForm, type: e.target.value})}
+                  label="유형"
+                  size="medium"
+                >
+                  <MenuItem value="merit">상점</MenuItem>
+                  <MenuItem value="demerit">벌점</MenuItem>
+                </Select>
+              </FormControl>
+              <TextField
+                fullWidth
+                label="사유"
+                value={meritReasonForm.reason}
+                onChange={(e) => setMeritReasonForm({...meritReasonForm, reason: e.target.value})}
+                placeholder="사유를 입력하세요"
+                multiline
+                rows={3}
+                size="medium"
+              />
+            </Box>
           </DialogContent>
           <DialogActions>
               <Button onClick={() => setShowMeritReasonDialog(false)}>취소</Button>
@@ -4956,9 +6323,498 @@ const AdminDashboard = () => {
             <Button onClick={() => setShowStudentMeritHistoryDialog(false)}>닫기</Button>
           </DialogActions>
         </Dialog>
-                    </Box>
-    </Box>
-  );
+
+        {/* 상벌점 내역에서 선택한 기록 상세 정보 모달 */}
+        <Dialog
+          open={showMeritRecordDetailDialog}
+          onClose={() => {
+            setShowMeritRecordDetailDialog(false);
+            setSelectedMeritRecord(null);
+          }}
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle>
+            상벌점 기록 상세 정보
+          </DialogTitle>
+          <DialogContent>
+            {selectedMeritRecord ? (
+              <Box sx={{ mt: 1 }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="text.secondary">학생 이름</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+                      {selectedMeritRecord.studentName || students.find(s => s.id === selectedMeritRecord.studentId)?.name || '알 수 없음'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="text.secondary">학번</Typography>
+                    <Typography variant="body1">
+                      {selectedMeritRecord.studentId || students.find(s => s.id === selectedMeritRecord.studentId)?.studentId || 'N/A'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="text.secondary">유형</Typography>
+                    <Chip
+                      label={selectedMeritRecord.type === 'merit' ? '상점' : '벌점'}
+                      color={selectedMeritRecord.type === 'merit' ? 'success' : 'error'}
+                      size="medium"
+                      sx={{ fontWeight: 'bold' }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="text.secondary">처리 점수</Typography>
+                    <Chip
+                      label={selectedMeritRecord.points > 0 ? `+${selectedMeritRecord.points}` : selectedMeritRecord.points}
+                      color={selectedMeritRecord.points > 0 ? 'success' : 'error'}
+                      size="medium"
+                      sx={{ fontWeight: 'bold', fontSize: '1rem' }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="text.secondary">처리 교사</Typography>
+                    <Typography variant="body1">
+                      {selectedMeritRecord.processedTeacherName || selectedMeritRecord.teacherName || selectedMeritRecord.creatorName || 'N/A'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="text.secondary">요청 교사</Typography>
+                    <Typography variant="body1">
+                      {selectedMeritRecord.requestingTeacherName || '-'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="text.secondary">상태</Typography>
+                    <Chip
+                      label={selectedMeritRecord.status === 'approved' ? '수락' : selectedMeritRecord.status === 'rejected' ? '거절' : selectedMeritRecord.status === 'pending' ? '대기' : '완료'}
+                      color={selectedMeritRecord.status === 'approved' ? 'success' : selectedMeritRecord.status === 'rejected' ? 'error' : selectedMeritRecord.status === 'pending' ? 'warning' : 'default'}
+                      size="small"
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="text.secondary">처리일시</Typography>
+                    <Typography variant="body1">
+                      {selectedMeritRecord.createdAt?.toDate?.() 
+                        ? new Date(selectedMeritRecord.createdAt.toDate()).toLocaleString('ko-KR')
+                        : selectedMeritRecord.createdAt 
+                          ? new Date(selectedMeritRecord.createdAt).toLocaleString('ko-KR')
+                          : 'N/A'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="text.secondary">사유</Typography>
+                    <Typography variant="body1" sx={{ mt: 1, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+                      {selectedMeritRecord.reason || '사유 없음'}
+                    </Typography>
+                  </Grid>
+                  {selectedMeritRecord.description && (
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle2" color="text.secondary">상세 설명</Typography>
+                      <Typography variant="body1" sx={{ mt: 1, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1, whiteSpace: 'pre-wrap' }}>
+                        {selectedMeritRecord.description}
+                      </Typography>
+                    </Grid>
+                  )}
+                </Grid>
+              </Box>
+            ) : (
+              <Typography>기록 정보를 불러올 수 없습니다.</Typography>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => {
+              setShowMeritRecordDetailDialog(false);
+              setSelectedMeritRecord(null);
+            }}>닫기</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* 학기 변동 알림 다이얼로그 */}
+        <Dialog 
+          open={showSemesterChangeNotification} 
+          onClose={() => {}} // 닫기 불가 (승인 또는 나중에만 가능)
+          maxWidth="sm" 
+          fullWidth
+        >
+          <DialogTitle sx={{ color: '#ff9800', fontWeight: 'bold' }}>
+            📅 학기 변동 필요
+          </DialogTitle>
+          <DialogContent>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+              <Alert severity="warning">
+                <Typography variant="body1" sx={{ fontWeight: 'bold', mb: 1 }}>
+                  현재 9월입니다. 학기를 변동해야 합니다.
+                </Typography>
+                <Typography variant="body2">
+                  {semesterChangeNotification?.currentAcademicYear}학년도 1학기 → 2학기로 변동됩니다.
+                </Typography>
+              </Alert>
+              
+              <Typography variant="body2" color="text.secondary">
+                승인하시면 모든 학생과 클래스의 학기 정보가 자동으로 업데이트됩니다.
+                <br />
+                롤백이 가능하며, 승인하기 전까지는 매번 로그인 시 이 알림이 표시됩니다.
+              </Typography>
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button 
+              onClick={() => {
+                setShowSemesterChangeNotification(false);
+                // 알림을 나중에 보기로 표시 (다음 로그인 시 다시 표시)
+              }}
+              color="inherit"
+            >
+              나중에
+            </Button>
+            {(semesterChangeNotification?.status === 'approved' || semesterChangeBackup) && (
+              <Button 
+                onClick={handleRollbackSemesterChange}
+                color="error"
+                variant="outlined"
+              >
+                롤백
+              </Button>
+            )}
+            <Button 
+              onClick={handleApproveSemesterChange}
+              variant="contained"
+              color="primary"
+              sx={{ fontWeight: 'bold' }}
+              disabled={loading}
+            >
+              승인
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* 새학기 시작 다이얼로그 */}
+        <Dialog 
+          open={showNewSemesterDialog} 
+          onClose={() => setShowNewSemesterDialog(false)} 
+          maxWidth="sm" 
+          fullWidth
+        >
+          <DialogTitle>새학기 시작</DialogTitle>
+          <DialogContent>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+              <Alert severity="info">
+                <Typography variant="body2">
+                  현재: {getCurrentAcademicYearAndSemester().academicYear}학년도 {getCurrentAcademicYearAndSemester().semester}학기
+                </Typography>
+              </Alert>
+              
+              <FormControl fullWidth>
+                <InputLabel>전환 유형</InputLabel>
+                <Select
+                  value={newSemesterType}
+                  onChange={(e) => setNewSemesterType(e.target.value)}
+                  label="전환 유형"
+                >
+                  <MenuItem value="same_year">1학기 → 2학기 (같은 학년도)</MenuItem>
+                  <MenuItem value="new_year">2학기 → 1학기 (새 학년도, 학년 +1)</MenuItem>
+                </Select>
+              </FormControl>
+              
+              <Typography variant="body2" color="text.secondary">
+                1. 학생 정보 다운로드 버튼을 클릭하여 XLSX 파일을 다운로드하세요.
+                <br />
+                2. 다운로드된 파일에서 새학번을 입력하세요.
+                <br />
+                3. 저장 후 "새학기 학적 변동" 버튼으로 업로드하세요.
+              </Typography>
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setShowNewSemesterDialog(false)}>취소</Button>
+            <Button 
+              variant="outlined" 
+              onClick={handleDownloadStudentInfoForNewSemester}
+              startIcon={<FileDownloadIcon />}
+            >
+              학생 정보 다운로드
+            </Button>
+            <input
+              accept=".xlsx"
+              style={{ display: 'none' }}
+              id="new-semester-upload-dialog"
+              type="file"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  handleNewSemesterUpload(e.target.files[0]);
+                  setShowNewSemesterDialog(false);
+                }
+              }}
+            />
+            <label htmlFor="new-semester-upload-dialog">
+              <Button 
+                variant="contained" 
+                component="span"
+                startIcon={<FileUploadIcon />}
+              >
+                새학기 학적 변동 업로드
+              </Button>
+            </label>
+          </DialogActions>
+        </Dialog>
+
+        {/* 새학기 학적 변동 업로드 */}
+        <input
+          accept=".xlsx"
+          style={{ display: 'none' }}
+          id="new-semester-upload"
+          type="file"
+          onChange={(e) => {
+            if (e.target.files && e.target.files[0]) {
+              handleNewSemesterUpload(e.target.files[0]);
+            }
+          }}
+        />
+        <label htmlFor="new-semester-upload">
+          <Button
+            variant="outlined"
+            color="primary"
+            component="span"
+            startIcon={<FileUploadIcon />}
+            sx={{ display: 'none' }}
+            id="new-semester-upload-trigger"
+          >
+            새학기 학적 변동 업로드
+          </Button>
+        </label>
+
+        {/* 담임교사 할당 다이얼로그 */}
+        <Dialog 
+          open={showTeacherAssignmentDialog} 
+          onClose={() => setShowTeacherAssignmentDialog(false)} 
+          maxWidth="md" 
+          fullWidth
+        >
+          <DialogTitle>담임교사 할당</DialogTitle>
+          <DialogContent>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1, maxHeight: '60vh', overflowY: 'auto' }}>
+              {createdClasses.map((classItem) => (
+                <Box key={classItem.id} sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                  <Typography variant="h6" gutterBottom>
+                    {classItem.name} ({classItem.studentCount}명)
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <FormControl fullWidth>
+                      <InputLabel>담임교사</InputLabel>
+                      <Select
+                        value={teacherAssignment[classItem.id] || ''}
+                        onChange={(e) => {
+                          setTeacherAssignment({
+                            ...teacherAssignment,
+                            [classItem.id]: e.target.value
+                          });
+                        }}
+                        label="담임교사"
+                      >
+                        <MenuItem value="">선택 안함</MenuItem>
+                        {teachers
+                          .filter(t => t.role === 'homeroom_teacher' && t.status !== 'disabled')
+                          .map(teacher => (
+                            <MenuItem key={teacher.id} value={teacher.id}>
+                              {teacher.name} ({teacher.email})
+                            </MenuItem>
+                          ))}
+                        <MenuItem value="__create_new__">+ 새로 생성</MenuItem>
+                      </Select>
+                    </FormControl>
+                    {teacherAssignment[classItem.id] === '__create_new__' && (
+                      <Button
+                        variant="outlined"
+                        onClick={() => {
+                          setSelectedClassForTeacher(classItem);
+                          setShowCreateTeacherDialog(true);
+                        }}
+                      >
+                        생성
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setShowTeacherAssignmentDialog(false)}>취소</Button>
+            <Button 
+              variant="contained" 
+              onClick={async () => {
+                try {
+                  setLoading(true);
+                  const batch = writeBatch(db);
+                  
+                  for (const classItem of createdClasses) {
+                    const teacherId = teacherAssignment[classItem.id];
+                    if (teacherId && teacherId !== '__create_new__') {
+                      const classRef = doc(db, 'classes', classItem.id);
+                      const teacher = teachers.find(t => t.id === teacherId);
+                      batch.update(classRef, {
+                        homeroomTeacherId: teacherId,
+                        homeroomTeacherName: teacher?.name || '',
+                        updatedAt: new Date()
+                      });
+                    }
+                  }
+                  
+                  await batch.commit();
+                  
+                  await Swal.fire({
+                    title: '완료',
+                    text: '담임교사 할당이 완료되었습니다.',
+                    icon: 'success'
+                  });
+                  
+                  setShowTeacherAssignmentDialog(false);
+                  setCreatedClasses([]);
+                  setTeacherAssignment({});
+                  
+                  // 데이터 새로고침
+                  window.location.reload();
+                } catch (error) {
+                  console.error('담임교사 할당 오류:', error);
+                  await Swal.fire({
+                    title: '오류',
+                    text: '담임교사 할당 중 오류가 발생했습니다: ' + error.message,
+                    icon: 'error'
+                  });
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            >
+              저장
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* 담임교사 생성 다이얼로그 */}
+        <Dialog 
+          open={showCreateTeacherDialog} 
+          onClose={() => {
+            setShowCreateTeacherDialog(false);
+            setNewTeacherForm({ name: '', email: '', phone: '' });
+            setSelectedClassForTeacher(null);
+          }} 
+          maxWidth="sm" 
+          fullWidth
+        >
+          <DialogTitle>담임교사 생성</DialogTitle>
+          <DialogContent>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+              <TextField
+                fullWidth
+                label="이름"
+                value={newTeacherForm.name}
+                onChange={(e) => setNewTeacherForm({...newTeacherForm, name: e.target.value})}
+                required
+              />
+              <TextField
+                fullWidth
+                label="이메일"
+                type="email"
+                value={newTeacherForm.email}
+                onChange={(e) => setNewTeacherForm({...newTeacherForm, email: e.target.value})}
+                required
+              />
+              <TextField
+                fullWidth
+                label="전화번호"
+                value={newTeacherForm.phone}
+                onChange={(e) => setNewTeacherForm({...newTeacherForm, phone: e.target.value})}
+              />
+              {selectedClassForTeacher && (
+                <Alert severity="info">
+                  {selectedClassForTeacher.name}에 할당됩니다.
+                </Alert>
+              )}
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => {
+              setShowCreateTeacherDialog(false);
+              setNewTeacherForm({ name: '', email: '', phone: '' });
+              setSelectedClassForTeacher(null);
+            }}>취소</Button>
+            <Button 
+              variant="contained" 
+              onClick={async () => {
+                try {
+                  if (!newTeacherForm.name || !newTeacherForm.email) {
+                    await Swal.fire({
+                      title: '오류',
+                      text: '이름과 이메일은 필수입니다.',
+                      icon: 'error'
+                    });
+                    return;
+                  }
+                  
+                  setLoading(true);
+                  
+                  // 담임교사 생성 (기존 handleAddTeacher 로직 사용)
+                  const newTeacherData = {
+                    name: newTeacherForm.name,
+                    email: newTeacherForm.email,
+                    phone: newTeacherForm.phone || '',
+                    role: 'homeroom_teacher',
+                    subject: '',
+                    status: 'active',
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                  };
+                  
+                  const docRef = await addDoc(collection(db, 'accounts'), newTeacherData);
+                  
+                  // 클래스에 담임교사 할당
+                  if (selectedClassForTeacher) {
+                    const classRef = doc(db, 'classes', selectedClassForTeacher.id);
+                    await updateDoc(classRef, {
+                      homeroomTeacherId: docRef.id,
+                      homeroomTeacherName: newTeacherForm.name,
+                      updatedAt: new Date()
+                    });
+                    
+                    // teacherAssignment 업데이트
+                    setTeacherAssignment({
+                      ...teacherAssignment,
+                      [selectedClassForTeacher.id]: docRef.id
+                    });
+                  }
+                  
+                  await Swal.fire({
+                    title: '완료',
+                    text: '담임교사가 생성되고 할당되었습니다.',
+                    icon: 'success'
+                  });
+                  
+                  setShowCreateTeacherDialog(false);
+                  setNewTeacherForm({ name: '', email: '', phone: '' });
+                  setSelectedClassForTeacher(null);
+                  
+                  // 데이터 새로고침
+                  window.location.reload();
+                } catch (error) {
+                  console.error('담임교사 생성 오류:', error);
+                  await Swal.fire({
+                    title: '오류',
+                    text: '담임교사 생성 중 오류가 발생했습니다: ' + error.message,
+                    icon: 'error'
+                  });
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            >
+              생성
+            </Button>
+          </DialogActions>
+        </Dialog>
+        </Box>
+      </Box>
+    );
 
 };
 

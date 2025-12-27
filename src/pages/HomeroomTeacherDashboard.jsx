@@ -734,6 +734,7 @@ const HomeroomTeacherDashboard = () => {
       let unsubscribeResetRequests = null;
       let unsubscribeInquiries = null;
       let unsubscribeClasses = null;
+      let unsubscribeMeritRecords = null;
       
       // 기존 리스너들 정리
       const cleanup = () => {
@@ -755,6 +756,9 @@ const HomeroomTeacherDashboard = () => {
         if (unsubscribeClasses) {
           unsubscribeClasses();
         }
+        if (unsubscribeMeritRecords) {
+          unsubscribeMeritRecords();
+        }
       };
       
       const cleanupOnUnmount = () => {
@@ -767,7 +771,7 @@ const HomeroomTeacherDashboard = () => {
           
           await fetchStudents();
           await fetchPendingRequests();
-          await fetchMeritRecords();
+          unsubscribeMeritRecords = await fetchMeritRecords();
           await fetchResetRequests();
           await fetchInquiries();
           await fetchGradeClasses();
@@ -1179,40 +1183,123 @@ const HomeroomTeacherDashboard = () => {
       console.log('현재 사용자 UID:', currentUser.uid);
       console.log('담당 학생들:', students.map(s => ({ id: s.id, name: s.name, class: s.class })));
       
+      // 본인 클래스의 학생 ID 목록 생성
+      const myStudentIds = students.map(student => student.id);
+      console.log('본인 클래스 학생 ID 목록:', myStudentIds);
+      
+      if (myStudentIds.length === 0) {
+        console.log('담당 학생이 없습니다.');
+        setMeritRecords([]);
+        return null;
+      }
+      
+      // 통합된 상벌점 내역을 저장할 변수 (클로저로 공유)
+      let recordsData = [];
+      let requestsData = [];
+      
+      // 데이터 통합 및 업데이트 함수
+      const updateMergedRecords = () => {
+        const allRecords = [...recordsData, ...requestsData].sort((a, b) => {
+          const dateA = a.createdAt?.getTime?.() || new Date(a.createdAt).getTime();
+          const dateB = b.createdAt?.getTime?.() || new Date(b.createdAt).getTime();
+          return dateB - dateA; // 최신순
+        });
+        console.log('통합된 상벌점 내역:', allRecords.length, '개 (기록:', recordsData.length, '개, 요청:', requestsData.length, '개)');
+        setMeritRecords(allRecords);
+      };
+      
+      // 1. merit_demerit_records에서 본인 클래스 학생의 모든 기록 조회
       const recordsRef = collection(db, 'merit_demerit_records');
-      const q = query(
+      const recordsQuery = query(
         recordsRef,
         orderBy('createdAt', 'desc')
       );
       
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        console.log('전체 상벌점 기록 조회 결과:', snapshot.size, '개');
+      // 2. merit_demerit_requests에서 본인 클래스 학생에 대한 모든 요청 조회 (거절/승인 모두)
+      const requestsRef = collection(db, 'merit_demerit_requests');
+      const requestsQuery = query(
+        requestsRef,
+        orderBy('createdAt', 'desc')
+      );
+      
+      // 기록 조회
+      const unsubscribeRecords = onSnapshot(recordsQuery, (recordsSnapshot) => {
+        console.log('전체 상벌점 기록 조회 결과:', recordsSnapshot.size, '개');
         
-        // 본인 클래스의 학생 ID 목록 생성
-        const myStudentIds = students.map(student => student.id);
-        console.log('본인 클래스 학생 ID 목록:', myStudentIds);
-        
-        const recordsData = snapshot.docs
+        // 본인 클래스 학생의 기록만 필터링
+        recordsData = recordsSnapshot.docs
           .map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: doc.data().createdAt?.toDate?.() || new Date(doc.data().createdAt)
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate?.() || new Date(doc.data().createdAt),
+            source: 'record' // 기록에서 온 것
           }))
           .filter(record => {
-            // 본인 클래스의 학생들만 필터링
             const isMyStudent = myStudentIds.includes(record.studentId);
-            console.log(`기록 ${record.id}: studentId=${record.studentId}, studentName=${record.studentName}, 본인학생=${isMyStudent}`);
             return isMyStudent;
           });
         
         console.log('필터링된 상벌점 기록:', recordsData.length, '개');
-        setMeritRecords(recordsData);
+        updateMergedRecords();
       }, (error) => {
         console.error('상벌점 기록 조회 오류:', error);
         setError(error.message);
       });
       
-      return unsubscribe;
+      // 요청 조회
+      const unsubscribeRequests = onSnapshot(requestsQuery, (requestsSnapshot) => {
+        console.log('전체 상벌점 요청 조회 결과:', requestsSnapshot.size, '개');
+        
+        // 본인 클래스 학생에 대한 요청만 필터링 (거절/승인 모두 포함)
+        requestsData = requestsSnapshot.docs
+          .map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              studentId: data.studentId || data.student_id,
+              studentName: data.studentName || data.student_name || '알 수 없음',
+              type: data.type || 'demerit',
+              points: data.points || data.value || 0,
+              reason: data.reason || data.meritReason || '',
+              description: data.description || data.detailDescription || '',
+              requestingTeacherName: data.requestingTeacherName || data.requester_name || data.requesterName || '알 수 없음',
+              requestingTeacherId: data.requestingTeacherId || data.requester_id,
+              status: data.status || 'pending',
+              createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt || data.requestedAt?.toDate?.() || new Date()),
+              responseAt: data.responseAt?.toDate?.() || (data.responseAt ? new Date(data.responseAt) : null),
+              responseNote: data.responseNote || '',
+              source: 'request', // 요청에서 온 것
+              // 기록 형식에 맞게 변환
+              processedTeacherName: data.status === 'approved' ? (currentUser.name || '담임교사') : '',
+              teacherName: data.requestingTeacherName || data.requester_name || data.requesterName || '알 수 없음',
+              creatorName: data.requestingTeacherName || data.requester_name || data.requesterName || '알 수 없음',
+              homeroomTeacherId: data.homeroomTeacherId || data.homeroom_teacher_id,
+              homeroomTeacher: data.homeroomTeacher || data.homeroom_teacher
+            };
+          })
+          .filter(request => {
+            const isMyStudent = myStudentIds.includes(request.studentId);
+            // 본인 클래스 학생에 대한 요청이면서, 본인이 담당하는 요청인지 확인
+            const isMyRequest = 
+              request.homeroomTeacherId === currentUser.uid ||
+              request.homeroom_teacher_id === currentUser.uid ||
+              request.homeroomTeacher === currentUser.uid ||
+              request.homeroom_teacher === currentUser.uid;
+            return isMyStudent && isMyRequest;
+          });
+        
+        console.log('필터링된 상벌점 요청:', requestsData.length, '개');
+        updateMergedRecords();
+      }, (error) => {
+        console.error('상벌점 요청 조회 오류:', error);
+        setError(error.message);
+      });
+      
+      // 두 구독 모두 반환 (나중에 정리할 수 있도록)
+      return () => {
+        unsubscribeRecords();
+        unsubscribeRequests();
+      };
     } catch (error) {
       console.error('fetchMeritRecords 오류:', error);
       setError(error.message);
@@ -1390,11 +1477,17 @@ const HomeroomTeacherDashboard = () => {
         reason: meritForm.reason,
         description: meritForm.description || '',
         teacherId: currentUser.uid,
-        teacherName: currentUser.displayName || '담임교사',
+        teacherName: currentUser.displayName || currentUser.name || '담임교사',
         homeroomTeacherId: currentUser.uid,
         creatorId: currentUser.uid,
         creatorName: currentUser.name || currentUser.displayName || '담임교사',
         creatorRole: 'homeroom_teacher',
+        requestingTeacherId: currentUser.uid, // 요청 교사 ID 명시적으로 저장
+        requestingTeacherName: currentUser.name || currentUser.displayName || '담임교사',
+        requestingTeacherUid: currentUser.uid, // UID 명시적으로 저장
+        requester_id: currentUser.uid,
+        requester_name: currentUser.name || currentUser.displayName || '담임교사',
+        requester_role: 'homeroom_teacher',
         createdAt: new Date(),
         status: 'approved' // 담임교사가 직접 등록하므로 바로 승인
       };
@@ -1819,20 +1912,32 @@ const HomeroomTeacherDashboard = () => {
     try {
       console.log('=== fetchGradeStudents 디버깅 시작 ===');
       console.log('현재 내 담당 학생들:', students);
+      console.log('현재 클래스 목록:', classes);
       
-      // 내 담당 클래스의 학년 확인
-      const myGrade = students.length > 0 ? students[0].grade : null;
-      console.log('내 담당 클래스 학년:', myGrade);
-      
-      if (!myGrade) {
-        console.log('내 담당 클래스 학년을 확인할 수 없습니다.');
+      // 내가 담당하는 학생이 없으면 종료
+      if (students.length === 0) {
+        console.log('내 담당 학생이 없습니다.');
         setGradeStudents([]);
         return;
       }
       
+      // 내 담당 학생들의 학년 확인 (첫 번째 학생의 학년 사용)
+      const myGrade = students[0].grade;
+      if (!myGrade) {
+        console.log('학년 정보를 확인할 수 없습니다.');
+        setGradeStudents([]);
+        return;
+      }
+      
+      console.log('내 담당 클래스 학년:', myGrade);
+      
+      // 내가 담당하는 학생들의 반 번호 목록 (본인 학급들)
+      const myClassNumbers = [...new Set(students.map(s => s.class).filter(c => c))];
+      console.log('본인 학급 반 번호들:', myClassNumbers);
+      
       // 내가 담당하는 학생들의 ID 목록
       const myStudentIds = students.map(s => s.id);
-      console.log('내가 담당하는 학생 ID들:', myStudentIds);
+      console.log('본인 학급 학생 ID들:', myStudentIds);
       
       // 모든 학생 조회
       const studentsRef = collection(db, 'accounts');
@@ -1845,18 +1950,22 @@ const HomeroomTeacherDashboard = () => {
       studentsSnapshot.forEach((doc) => {
         const studentData = doc.data();
         
-        // 같은 학년이면서 내가 담당하지 않는 학생인지 확인
+        // 같은 학년인지 확인
         const isSameGrade = studentData.grade === myGrade;
+        // 본인 학급이 아닌지 확인 (같은 학년이면서 본인 학급 반이 아닌 경우)
+        const isNotMyClass = !(isSameGrade && myClassNumbers.includes(studentData.class));
+        // 본인 담당 학생이 아닌지 확인 (추가 안전장치)
         const isNotMyStudent = !myStudentIds.includes(doc.id);
         
         console.log(`학생 ${studentData.name} (${studentData.grade}학년 ${studentData.class}반) 검사:`, {
           isSameGrade,
+          isNotMyClass,
           isNotMyStudent,
           studentId: doc.id
         });
         
-        if (isSameGrade && isNotMyStudent) {
-          console.log(`✓ 학생 ${studentData.name} 추가됨 - 같은 학년, 내 담당 학생이 아님`);
+        if (isSameGrade && isNotMyClass && isNotMyStudent) {
+          console.log(`✓ 학생 ${studentData.name} 추가됨 - 같은 학년, 본인 학급이 아님`);
           gradeStudentsData.push({
             id: doc.id,
             ...studentData
@@ -1864,8 +1973,10 @@ const HomeroomTeacherDashboard = () => {
         } else {
           if (!isSameGrade) {
             console.log(`✗ 학생 ${studentData.name} 제외됨 - 다른 학년 (${studentData.grade}학년)`);
+          } else if (!isNotMyClass) {
+            console.log(`✗ 학생 ${studentData.name} 제외됨 - 본인 학급`);
           } else if (!isNotMyStudent) {
-            console.log(`✗ 학생 ${studentData.name} 제외됨 - 내 담당 학생`);
+            console.log(`✗ 학생 ${studentData.name} 제외됨 - 본인 담당 학생`);
           }
         }
       });
@@ -2113,6 +2224,7 @@ const HomeroomTeacherDashboard = () => {
         requestingTeacherId: currentUser.uid,
         requestingTeacherName: currentUser.displayName || currentUser.name || currentUser.email,
         requestingTeacherRole: 'homeroom_teacher',
+        requestingTeacherUid: currentUser.uid, // UID 명시적으로 저장
         type: gradeMeritForm.type,
         points: gradeMeritForm.type === 'demerit' ? -Math.abs(parseInt(gradeMeritForm.points)) : Math.abs(parseInt(gradeMeritForm.points)),
         value: gradeMeritForm.type === 'demerit' ? -Math.abs(parseInt(gradeMeritForm.points)) : Math.abs(parseInt(gradeMeritForm.points)),
@@ -3443,72 +3555,127 @@ const HomeroomTeacherDashboard = () => {
                     <TableHead>
                       <TableRow>
                         <TableCell 
-                          sx={{ cursor: 'pointer', userSelect: 'none' }}
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}
                           onClick={() => handleMeritSort('studentName')}
                         >
                           학생 {meritSortConfig.key === 'studentName' && (meritSortConfig.direction === 'asc' ? '↑' : '↓')}
                         </TableCell>
                         <TableCell 
-                          sx={{ cursor: 'pointer', userSelect: 'none' }}
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}
                           onClick={() => handleMeritSort('points')}
                         >
                           점수 {meritSortConfig.key === 'points' && (meritSortConfig.direction === 'asc' ? '↑' : '↓')}
                         </TableCell>
                         <TableCell 
-                          sx={{ cursor: 'pointer', userSelect: 'none' }}
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}
                           onClick={() => handleMeritSort('reason')}
                         >
                           사유 {meritSortConfig.key === 'reason' && (meritSortConfig.direction === 'asc' ? '↑' : '↓')}
                         </TableCell>
-                        <TableCell>상세설명</TableCell>
-                        <TableCell 
-                          sx={{ cursor: 'pointer', userSelect: 'none' }}
-                          onClick={() => handleMeritSort('requesterName')}
-                        >
-                          요청자 {meritSortConfig.key === 'requesterName' && (meritSortConfig.direction === 'asc' ? '↑' : '↓')}
+                        <TableCell sx={{ fontWeight: 'bold' }}>상세설명</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold' }}>
+                          요청/처리 교사
                         </TableCell>
                         <TableCell 
-                          sx={{ cursor: 'pointer', userSelect: 'none' }}
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}
                           onClick={() => handleMeritSort('createdAt')}
                         >
-                          승인일 {meritSortConfig.key === 'createdAt' && (meritSortConfig.direction === 'asc' ? '↑' : '↓')}
+                          처리일시 {meritSortConfig.key === 'createdAt' && (meritSortConfig.direction === 'asc' ? '↑' : '↓')}
                         </TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {meritRecords.map((record) => (
-                          <TableRow key={record.id}>
-                          <TableCell>{record.studentName}</TableCell>
-                          <TableCell>
-                            <Chip
-                              label={`${record.points > 0 ? '+' : ''}${record.points}`}
-                              color={record.points > 0 ? 'success' : 'error'}
-                              size="small"
-                              variant="outlined"
-                            />
+                      {meritRecords.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} align="center">
+                            상벌점 기록이 없습니다.
                           </TableCell>
-                            <TableCell>{record.reason}</TableCell>
-                            <TableCell>{record.description || ''}</TableCell>
-                          <TableCell>{record.requesterName}</TableCell>
-                          <TableCell>
-                            {record.approvedAt?.toDate?.()?.toLocaleString?.('ko-KR', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit'
-                            }) || record.createdAt?.toLocaleString?.('ko-KR', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit'
-                            }) || 'N/A'}
-                          </TableCell>
-                          </TableRow>
-                      ))}
+                        </TableRow>
+                      ) : (
+                        meritRecords.map((record) => {
+                          // 요청인 경우 상태 표시
+                          const isRequest = record.source === 'request';
+                          const status = record.status || 'approved';
+                          
+                          return (
+                            <TableRow key={record.id}>
+                              <TableCell>{record.studentName || '알 수 없음'}</TableCell>
+                              <TableCell>
+                                <Chip
+                                  label={`${record.points > 0 ? '+' : ''}${record.points}`}
+                                  color={record.points > 0 ? 'success' : 'error'}
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              </TableCell>
+                              <TableCell>{record.reason || ''}</TableCell>
+                              <TableCell>{record.description || ''}</TableCell>
+                              <TableCell>
+                                {isRequest ? (
+                                  <Box>
+                                    <Typography variant="body2">
+                                      요청: {record.requestingTeacherName || record.teacherName || '알 수 없음'}
+                                    </Typography>
+                                    {status === 'approved' && (
+                                      <Typography variant="caption" color="success.main">
+                                        처리: {record.processedTeacherName || currentUser.name || '담임교사'}
+                                      </Typography>
+                                    )}
+                                    {status === 'rejected' && (
+                                      <Typography variant="caption" color="error.main">
+                                        거절됨
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                ) : (
+                                  record.processedTeacherName || record.teacherName || record.creatorName || record.requestingTeacherName || 'N/A'
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {isRequest ? (
+                                  <Box>
+                                    <Chip
+                                      label={status === 'approved' ? '승인' : status === 'rejected' ? '거절' : '대기'}
+                                      color={status === 'approved' ? 'success' : status === 'rejected' ? 'error' : 'warning'}
+                                      size="small"
+                                      sx={{ mb: 0.5 }}
+                                    />
+                                    <Typography variant="caption" display="block">
+                                      {record.createdAt?.toLocaleString?.('ko-KR', {
+                                        year: 'numeric',
+                                        month: '2-digit',
+                                        day: '2-digit',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      }) || 'N/A'}
+                                    </Typography>
+                                    {record.responseAt && (
+                                      <Typography variant="caption" color="text.secondary" display="block">
+                                        처리: {record.responseAt.toLocaleString('ko-KR', {
+                                          year: 'numeric',
+                                          month: '2-digit',
+                                          day: '2-digit',
+                                          hour: '2-digit',
+                                          minute: '2-digit'
+                                        })}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                ) : (
+                                  record.createdAt?.toLocaleString?.('ko-KR', {
+                                    year: 'numeric',
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    second: '2-digit'
+                                  }) || 'N/A'
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
                     </TableBody>
                   </Table>
             </Box>
@@ -3756,76 +3923,71 @@ const HomeroomTeacherDashboard = () => {
       <Dialog open={showMeritDialog} onClose={() => setShowMeritDialog(false)} maxWidth="md" fullWidth>
         <DialogTitle>상벌점 등록</DialogTitle>
           <DialogContent>
-          <Grid container spacing={3} sx={{ mt: 1 }}>
-            <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>학생</InputLabel>
-                  <Select
-                  value={selectedStudent ? selectedStudent.id : ''}
-                  onChange={(e) => setSelectedStudent(students.find(s => s.id === e.target.value))}
-                  label="학생"
-                  >
-                    {students.map(student => (
-                      <MenuItem key={student.id} value={student.id}>
-                        {student.name} ({student.studentId})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>구분</InputLabel>
-                  <Select
-                  value={meritForm.type || 'demerit'}
-                    onChange={(e) => setMeritForm({...meritForm, type: e.target.value})}
-                  label="구분"
-                  >
-                    <MenuItem value="merit">상점</MenuItem>
-                    <MenuItem value="demerit">벌점</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-            <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="점수"
-                  type="number"
-                value={meritForm.value || 1}
-                  onChange={(e) => setMeritForm({...meritForm, value: parseInt(e.target.value)})}
-                  inputProps={{ min: 1 }}
-                required
-                />
-              </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                  <InputLabel>사유</InputLabel>
-                  <Select
-                  value={meritForm.reason || ''}
-                    onChange={(e) => setMeritForm({...meritForm, reason: e.target.value})}
-                  label="사유"
-                >
-                  {meritReasons
-                    .filter(reason => reason.type === meritForm.type)
-                    .map((reason) => (
-                      <MenuItem key={reason.id} value={reason.reason}>
-                        {reason.reason}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="상세 내용"
-                  multiline
-                  rows={3}
-                value={meritForm.description || ''}
-                  onChange={(e) => setMeritForm({...meritForm, description: e.target.value})}
-                />
-              </Grid>
-            </Grid>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1, maxWidth: '500px', mx: 'auto' }}>
+            <FormControl fullWidth>
+              <InputLabel>학생</InputLabel>
+              <Select
+                value={selectedStudent ? selectedStudent.id : ''}
+                onChange={(e) => setSelectedStudent(students.find(s => s.id === e.target.value))}
+                label="학생"
+                size="medium"
+              >
+                {students.map(student => (
+                  <MenuItem key={student.id} value={student.id}>
+                    {student.name} ({student.studentId})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth>
+              <InputLabel>구분</InputLabel>
+              <Select
+                value={meritForm.type || 'demerit'}
+                onChange={(e) => setMeritForm({...meritForm, type: e.target.value})}
+                label="구분"
+                size="medium"
+              >
+                <MenuItem value="merit">상점</MenuItem>
+                <MenuItem value="demerit">벌점</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              fullWidth
+              label="점수"
+              type="number"
+              value={meritForm.value || 1}
+              onChange={(e) => setMeritForm({...meritForm, value: parseInt(e.target.value)})}
+              inputProps={{ min: 1 }}
+              required
+              size="medium"
+            />
+            <FormControl fullWidth>
+              <InputLabel>사유</InputLabel>
+              <Select
+                value={meritForm.reason || ''}
+                onChange={(e) => setMeritForm({...meritForm, reason: e.target.value})}
+                label="사유"
+                size="medium"
+              >
+                {meritReasons
+                  .filter(reason => reason.type === meritForm.type)
+                  .map((reason) => (
+                    <MenuItem key={reason.id} value={reason.reason}>
+                      {reason.reason}
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
+            <TextField
+              fullWidth
+              label="상세 내용"
+              multiline
+              rows={3}
+              value={meritForm.description || ''}
+              onChange={(e) => setMeritForm({...meritForm, description: e.target.value})}
+              size="medium"
+            />
+          </Box>
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setShowMeritDialog(false)}>취소</Button>
@@ -3837,76 +3999,71 @@ const HomeroomTeacherDashboard = () => {
       <Dialog open={showRequestDialog} onClose={() => setShowRequestDialog(false)} maxWidth="md" fullWidth>
         <DialogTitle>상벌점 요청</DialogTitle>
           <DialogContent>
-          <Grid container spacing={3} sx={{ mt: 1 }}>
-            <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                <InputLabel>학생</InputLabel>
-                  <Select
-                  value={selectedStudent ? selectedStudent.id : ''}
-                  onChange={(e) => setSelectedStudent(students.find(s => s.id === e.target.value))}
-                  label="학생"
-                >
-                  {students.map(student => (
-                    <MenuItem key={student.id} value={student.id}>
-                      {student.name} ({student.studentId})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>구분</InputLabel>
-                <Select
-                  value={meritForm.type || 'demerit'}
-                  onChange={(e) => setMeritForm({...meritForm, type: e.target.value})}
-                  label="구분"
-                >
-                  <MenuItem value="merit">상점</MenuItem>
-                  <MenuItem value="demerit">벌점</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                label="점수"
-                type="number"
-                value={meritForm.value || 1}
-                onChange={(e) => setMeritForm({...meritForm, value: parseInt(e.target.value)})}
-                inputProps={{ min: 1 }}
-                required
-                />
-              </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>사유</InputLabel>
-                <Select
-                  value={meritForm.reason || ''}
-                  onChange={(e) => setMeritForm({...meritForm, reason: e.target.value})}
-                  label="사유"
-                >
-                  {meritReasons
-                    .filter(reason => reason.type === meritForm.type)
-                    .map((reason) => (
-                      <MenuItem key={reason.id} value={reason.reason}>
-                        {reason.reason}
-                      </MenuItem>
-                    ))}
-                </Select>
-              </FormControl>
-            </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                label="상세 내용"
-                  multiline
-                rows={3}
-                value={meritForm.description || ''}
-                onChange={(e) => setMeritForm({...meritForm, description: e.target.value})}
-                />
-              </Grid>
-            </Grid>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1, maxWidth: '500px', mx: 'auto' }}>
+            <FormControl fullWidth>
+              <InputLabel>학생</InputLabel>
+              <Select
+                value={selectedStudent ? selectedStudent.id : ''}
+                onChange={(e) => setSelectedStudent(students.find(s => s.id === e.target.value))}
+                label="학생"
+                size="medium"
+              >
+                {students.map(student => (
+                  <MenuItem key={student.id} value={student.id}>
+                    {student.name} ({student.studentId})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth>
+              <InputLabel>구분</InputLabel>
+              <Select
+                value={meritForm.type || 'demerit'}
+                onChange={(e) => setMeritForm({...meritForm, type: e.target.value})}
+                label="구분"
+                size="medium"
+              >
+                <MenuItem value="merit">상점</MenuItem>
+                <MenuItem value="demerit">벌점</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              fullWidth
+              label="점수"
+              type="number"
+              value={meritForm.value || 1}
+              onChange={(e) => setMeritForm({...meritForm, value: parseInt(e.target.value)})}
+              inputProps={{ min: 1 }}
+              required
+              size="medium"
+            />
+            <FormControl fullWidth>
+              <InputLabel>사유</InputLabel>
+              <Select
+                value={meritForm.reason || ''}
+                onChange={(e) => setMeritForm({...meritForm, reason: e.target.value})}
+                label="사유"
+                size="medium"
+              >
+                {meritReasons
+                  .filter(reason => reason.type === meritForm.type)
+                  .map((reason) => (
+                    <MenuItem key={reason.id} value={reason.reason}>
+                      {reason.reason}
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
+            <TextField
+              fullWidth
+              label="상세 내용"
+              multiline
+              rows={3}
+              value={meritForm.description || ''}
+              onChange={(e) => setMeritForm({...meritForm, description: e.target.value})}
+              size="medium"
+            />
+          </Box>
           </DialogContent>
           <DialogActions>
           <Button onClick={() => setShowRequestDialog(false)}>취소</Button>
@@ -3923,89 +4080,81 @@ const HomeroomTeacherDashboard = () => {
         <DialogTitle>상벌점 요청</DialogTitle>
           <DialogContent>
           {selectedGradeStudent && (
-            <Grid container spacing={3} sx={{ mt: 1 }}>
-                  <Grid item xs={12}>
-                    <Typography variant="h6" gutterBottom>
-                  학생 정보
-                    </Typography>
-                    <Typography variant="body1" gutterBottom>
-                  <strong>이름:</strong> {selectedGradeStudent.name}
-                    </Typography>
-                    <Typography variant="body1" gutterBottom>
-                  <strong>학년/반/번호:</strong> {selectedGradeStudent.grade}학년 {selectedGradeStudent.class}반 {selectedGradeStudent.number}번
-                    </Typography>
-                    <Typography variant="body1" gutterBottom>
-                  <strong>담임교사:</strong> {getHomeroomTeacherDisplay(selectedGradeStudent)}
-                    </Typography>
-                  </Grid>
-                  
-                    <Grid item xs={12}>
-                <Divider />
-                    </Grid>
-
-                  <Grid item xs={12}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1, maxWidth: '500px', mx: 'auto' }}>
+              <Box>
                 <Typography variant="h6" gutterBottom>
-                  상벌점 정보
-                    </Typography>
-                  </Grid>
+                  학생 정보
+                </Typography>
+                <Typography variant="body1" gutterBottom>
+                  <strong>이름:</strong> {selectedGradeStudent.name}
+                </Typography>
+                <Typography variant="body1" gutterBottom>
+                  <strong>학년/반/번호:</strong> {selectedGradeStudent.grade}학년 {selectedGradeStudent.class}반 {selectedGradeStudent.number}번
+                </Typography>
+                <Typography variant="body1" gutterBottom>
+                  <strong>담임교사:</strong> {getHomeroomTeacherDisplay(selectedGradeStudent)}
+                </Typography>
+              </Box>
+              
+              <Divider />
 
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth required>
-                  <InputLabel>상벌점 유형</InputLabel>
-                  <Select
-                    value={gradeMeritForm.type}
-                    onChange={(e) => setGradeMeritForm({...gradeMeritForm, type: e.target.value, reason: ''})}
-                    label="상벌점 유형"
-                  >
-                    <MenuItem value="merit">상점</MenuItem>
-                    <MenuItem value="demerit">벌점</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
+              <Typography variant="h6" gutterBottom>
+                상벌점 정보
+              </Typography>
+
+              <FormControl fullWidth required>
+                <InputLabel>상벌점 유형</InputLabel>
+                <Select
+                  value={gradeMeritForm.type}
+                  onChange={(e) => setGradeMeritForm({...gradeMeritForm, type: e.target.value, reason: ''})}
+                  label="상벌점 유형"
+                  size="medium"
+                >
+                  <MenuItem value="merit">상점</MenuItem>
+                  <MenuItem value="demerit">벌점</MenuItem>
+                </Select>
+              </FormControl>
               
-              <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                  label="점수"
-                  type="number"
-                  value={gradeMeritForm.points}
-                  onChange={(e) => setGradeMeritForm({...gradeMeritForm, points: e.target.value})}
-                    required
-                  placeholder="점수를 입력하세요"
-                  />
-                </Grid>
+              <TextField
+                fullWidth
+                label="점수"
+                type="number"
+                value={gradeMeritForm.points}
+                onChange={(e) => setGradeMeritForm({...gradeMeritForm, points: e.target.value})}
+                required
+                placeholder="점수를 입력하세요"
+                size="medium"
+              />
               
-                <Grid item xs={12}>
-                <FormControl fullWidth required>
-                  <InputLabel>사유</InputLabel>
-                  <Select
-                    value={gradeMeritForm.reason}
-                    onChange={(e) => setGradeMeritForm({...gradeMeritForm, reason: e.target.value})}
-                    label="사유"
-                  >
-                    {meritReasons
-                      .filter(reason => reason.type === gradeMeritForm.type)
-                      .map((reason) => (
-                        <MenuItem key={reason.id} value={reason.reason}>
-                          {reason.reason}
-                        </MenuItem>
-                      ))}
-                  </Select>
-                </FormControl>
-                </Grid>
+              <FormControl fullWidth required>
+                <InputLabel>사유</InputLabel>
+                <Select
+                  value={gradeMeritForm.reason}
+                  onChange={(e) => setGradeMeritForm({...gradeMeritForm, reason: e.target.value})}
+                  label="사유"
+                  size="medium"
+                >
+                  {meritReasons
+                    .filter(reason => reason.type === gradeMeritForm.type)
+                    .map((reason) => (
+                      <MenuItem key={reason.id} value={reason.reason}>
+                        {reason.reason}
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
               
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                  label="상세 설명"
-                  value={gradeMeritForm.description}
-                  onChange={(e) => setGradeMeritForm({...gradeMeritForm, description: e.target.value})}
-                  multiline
-                  rows={4}
-                  placeholder="상세한 설명을 입력하세요 (선택사항)"
-                  />
-                </Grid>
-              </Grid>
+              <TextField
+                fullWidth
+                label="상세 설명"
+                value={gradeMeritForm.description}
+                onChange={(e) => setGradeMeritForm({...gradeMeritForm, description: e.target.value})}
+                multiline
+                rows={4}
+                placeholder="상세한 설명을 입력하세요 (선택사항)"
+                size="medium"
+              />
+            </Box>
             )}
           </DialogContent>
           <DialogActions>
