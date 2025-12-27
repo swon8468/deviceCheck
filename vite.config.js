@@ -127,9 +127,7 @@ export default defineConfig({
           }
         ],
         skipWaiting: false, // 사용자 승인 후 업데이트
-        clientsClaim: false,
-        // Service Worker 업데이트 체크 주기 단축
-        checkForUpdates: true
+        clientsClaim: false
       },
       devOptions: {
         enabled: true,
