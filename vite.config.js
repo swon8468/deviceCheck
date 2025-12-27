@@ -80,7 +80,60 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // 캐시 전략: NetworkFirst로 변경하여 항상 최신 버전 확인
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/.*\.js$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'js-cache',
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 60 * 60 // 1시간 (더 짧게 설정)
+              },
+              cacheableResponse: {
+                statuses: [0, 200]
+              }
+            }
+          },
+          {
+            urlPattern: /^https:\/\/.*\.css$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'css-cache',
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 60 * 60 // 1시간
+              },
+              cacheableResponse: {
+                statuses: [0, 200]
+              }
+            }
+          },
+          {
+            urlPattern: /^https:\/\/.*\.html$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'html-cache',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 5 // 5분 (HTML은 더 짧게)
+              },
+              cacheableResponse: {
+                statuses: [0, 200]
+              }
+            }
+          }
+        ],
+        skipWaiting: false, // 사용자 승인 후 업데이트
+        clientsClaim: false,
+        // Service Worker 업데이트 체크 주기 단축
+        checkForUpdates: true
+      },
+      devOptions: {
+        enabled: true,
+        type: 'module'
       }
     })
   ],

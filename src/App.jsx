@@ -151,11 +151,33 @@ const App = () => {
   } = useRegisterSW({
     onRegistered(r) {
       // Service Worker 등록 완료
+      console.log('Service Worker 등록 완료:', r);
     },
     onRegisterError(error) {
       // Service Worker 등록 오류
+      console.error('Service Worker 등록 오류:', error);
+    },
+    onNeedRefresh() {
+      // 새 버전 감지
+      console.log('새 버전 감지됨');
+    },
+    onOfflineReady() {
+      // 오프라인 준비 완료
+      console.log('오프라인 준비 완료');
     },
   });
+  
+  // Service Worker 강제 업데이트 체크 (페이지 로드 시)
+  React.useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(registrations => {
+        registrations.forEach(registration => {
+          // Service Worker 업데이트 체크
+          registration.update();
+        });
+      });
+    }
+  }, []);
 
   React.useEffect(() => {
     document.title = '올바른 전자기기 사용 관리 시스템';
@@ -167,8 +189,27 @@ const App = () => {
     document.getElementsByTagName('head')[0].appendChild(link);
   }, []);
 
-  const handleUpdate = () => {
-    updateServiceWorker(true);
+  const handleUpdate = async () => {
+    try {
+      // Service Worker 강제 업데이트
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          // 활성화된 Service Worker 즉시 교체
+          if (registration.waiting) {
+            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+          await registration.update();
+        }
+      }
+      updateServiceWorker(true);
+      // 페이지 새로고침
+      window.location.reload();
+    } catch (error) {
+      console.error('Service Worker 업데이트 오류:', error);
+      // 강제 새로고침
+      window.location.reload();
+    }
   };
 
   const handleDismiss = () => {
