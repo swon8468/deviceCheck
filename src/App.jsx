@@ -167,16 +167,28 @@ const App = () => {
     },
   });
   
-  // Service Worker 강제 업데이트 체크 (페이지 로드 시)
+  // Service Worker 강제 업데이트 체크 (페이지 로드 시 및 주기적으로)
   React.useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(registrations => {
-        registrations.forEach(registration => {
-          // Service Worker 업데이트 체크
-          registration.update();
+    const checkForUpdates = () => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(registrations => {
+          registrations.forEach(registration => {
+            // Service Worker 업데이트 체크
+            registration.update().catch(err => {
+              console.log('Service Worker 업데이트 체크:', err);
+            });
+          });
         });
-      });
-    }
+      }
+    };
+    
+    // 페이지 로드 시 즉시 체크
+    checkForUpdates();
+    
+    // 30초마다 업데이트 체크
+    const interval = setInterval(checkForUpdates, 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   React.useEffect(() => {
