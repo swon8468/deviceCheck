@@ -183,6 +183,7 @@ const SubjectTeacherDashboard = () => {
       
       setStudentMeritHistory(historyData);
     } catch (error) {
+      console.error('학생 상벌점 내역 조회 오류:', error);
       setStudentMeritHistory([]);
     }
   };
@@ -226,24 +227,27 @@ const SubjectTeacherDashboard = () => {
           unsubscribeInquiries = await fetchInquiries();
           await fetchTeachers();
           
-          // 교과목 교사 대시보드 접근 로그 기록
-          try {
-            await addDoc(collection(db, 'system_logs'), {
-              userId: currentUser.uid,
-              userName: currentUser.name || currentUser.email,
-              userRole: currentUser.role,
-              majorCategory: '교사 활동',
-              middleCategory: '대시보드 접근',
-              minorCategory: '',
-              action: '교과목 교사 대시보드 접근',
-              details: `${currentUser.name || currentUser.email}님이 교과목 교사 대시보드에 접근했습니다.`,
-              timestamp: new Date(),
-              createdAt: new Date()
-            });
-          } catch (logError) {
-            // 로그 기록 오류 무시
+          // 교과목 교사 대시보드 접근 로그 기록 (super_admin 제외)
+          if (currentUser.role !== 'super_admin') {
+            try {
+              await addDoc(collection(db, 'system_logs'), {
+                userId: currentUser.uid,
+                userName: currentUser.name || currentUser.email,
+                userRole: currentUser.role,
+                majorCategory: '교사 활동',
+                middleCategory: '대시보드 접근',
+                minorCategory: '',
+                action: '교과목 교사 대시보드 접근',
+                details: `${currentUser.name || currentUser.email}님이 교과목 교사 대시보드에 접근했습니다.`,
+                timestamp: new Date(),
+                createdAt: new Date()
+              });
+            } catch (logError) {
+              console.error('시스템 로그 기록 오류:', logError);
+            }
           }
         } catch (error) {
+          console.error('리스너 설정 오류:', error);
           setError(error.message);
         }
       };
@@ -281,6 +285,7 @@ const SubjectTeacherDashboard = () => {
         fetchSentRequests()
       ]);
     } catch (error) {
+      console.error('데이터 조회 오류:', error);
     } finally {
       setLoading(false);
     }
@@ -357,6 +362,7 @@ const SubjectTeacherDashboard = () => {
             setStudents(studentsData);
             setLoading(false);
           }, (error) => {
+            console.error('학생 실시간 조회 오류:', error);
             setLoading(false);
           });
           
@@ -365,12 +371,14 @@ const SubjectTeacherDashboard = () => {
         }
         setLoading(false);
       }, (error) => {
+        console.error('클래스 실시간 조회 오류:', error);
         setLoading(false);
       });
       
       // 클래스 조회 cleanup 함수 반환
       return unsubscribeClasses;
     } catch (error) {
+      console.error('학생 조회 오류:', error);
       setLoading(false);
       return null;
     }
@@ -395,11 +403,13 @@ const SubjectTeacherDashboard = () => {
         })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         setSentRequests(requestsData);
       }, (error) => {
+        console.error('요청 실시간 조회 오류:', error);
       });
       
       // cleanup 함수 반환
       return unsubscribe;
     } catch (error) {
+      console.error('요청 조회 오류:', error);
       return null;
     }
   };
@@ -422,11 +432,13 @@ const SubjectTeacherDashboard = () => {
         })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         setStudentLogs(logsData);
       }, (error) => {
+        console.error('상벌점 로그 실시간 조회 오류:', error);
       });
       
       // cleanup 함수 반환
       return unsubscribe;
     } catch (error) {
+      console.error('상벌점 로그 조회 오류:', error);
       return null;
     }
   };
@@ -450,11 +462,13 @@ const SubjectTeacherDashboard = () => {
         })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         setInquiries(inquiriesData);
       }, (error) => {
+        console.error('교과목 교사 문의 조회 오류:', error);
         setError(error.message);
       });
       
       return unsubscribe;
     } catch (error) {
+      console.error('교과목 교사 fetchInquiries 오류:', error);
       setError(error.message);
       return null;
     }
@@ -571,11 +585,13 @@ const SubjectTeacherDashboard = () => {
         }));
         setTeachers(teachersData);
       }, (error) => {
+        console.error('교사 정보 실시간 조회 오류:', error);
       });
       
       // cleanup 함수 반환
       return unsubscribe;
     } catch (error) {
+      console.error('교사 정보 조회 오류:', error);
     }
   };
 
@@ -589,6 +605,7 @@ const SubjectTeacherDashboard = () => {
       }));
       setMeritReasons(reasonsData);
     } catch (error) {
+      console.error('상벌점 사유 조회 오류:', error);
     }
   };
 
@@ -613,6 +630,7 @@ const SubjectTeacherDashboard = () => {
     try {
       await logout();
     } catch (error) {
+      console.error('로그아웃 오류:', error);
     }
   };
 
@@ -664,6 +682,7 @@ const SubjectTeacherDashboard = () => {
                                 studentClass.teacherId;
       
       if (!homeroomTeacherId) {
+        console.error('클래스 데이터:', studentClass);
         await Swal.fire({
           title: '오류',
           text: '학생의 담임 교사 ID를 찾을 수 없습니다.',
@@ -697,22 +716,24 @@ const SubjectTeacherDashboard = () => {
       
       const docRef = await addDoc(collection(db, 'merit_demerit_requests'), requestData);
       
-      // 로그 기록
-      try {
-        await addDoc(collection(db, 'system_logs'), {
-          userId: currentUser.uid,
-          userName: currentUser.name || currentUser.email,
-          userRole: currentUser.role,
-          majorCategory: '상벌점 관리',
-          middleCategory: '상벌점 요청',
-          minorCategory: '',
-          action: '상벌점 요청 전송',
-          details: `${currentUser.name || currentUser.email}님이 ${selectedStudentData.name} 학생에게 상벌점 요청을 전송했습니다.`,
-          timestamp: new Date(),
-          createdAt: new Date()
-        });
-      } catch (logError) {
-        // 로그 기록 오류 무시
+      // 로그 기록 (super_admin 제외)
+      if (currentUser.role !== 'super_admin') {
+        try {
+          await addDoc(collection(db, 'system_logs'), {
+            userId: currentUser.uid,
+            userName: currentUser.name || currentUser.email,
+            userRole: currentUser.role,
+            majorCategory: '상벌점 관리',
+            middleCategory: '상벌점 요청',
+            minorCategory: '',
+            action: '상벌점 요청 전송',
+            details: `${currentUser.name || currentUser.email}님이 ${selectedStudentData.name} 학생에게 상벌점 요청을 전송했습니다.`,
+            timestamp: new Date(),
+            createdAt: new Date()
+          });
+        } catch (logError) {
+          console.error('로그 기록 오류:', logError);
+        }
       }
       
       setShowRequestDialog(false);
@@ -726,6 +747,7 @@ const SubjectTeacherDashboard = () => {
         icon: 'success'
       });
     } catch (error) {
+      console.error('요청 전송 오류:', error);
       await Swal.fire({
         title: '오류',
         text: '요청 전송 중 오류가 발생했습니다: ' + error.message,
@@ -1107,7 +1129,8 @@ const SubjectTeacherDashboard = () => {
         <Dialog open={showRequestDialog} onClose={() => setShowRequestDialog(false)} maxWidth="md" fullWidth>
           <DialogTitle>상벌점 요청</DialogTitle>
           <DialogContent>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
+            <Grid container spacing={3} sx={{ mt: 1 }}>
+              <Grid item xs={12}>
                 <FormControl fullWidth>
                   <InputLabel>학생 선택</InputLabel>
                   <Select
@@ -1122,6 +1145,8 @@ const SubjectTeacherDashboard = () => {
                     )}
                   </Select>
                 </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
                   <InputLabel>구분</InputLabel>
                   <Select
@@ -1133,6 +1158,8 @@ const SubjectTeacherDashboard = () => {
                     <MenuItem value="demerit">벌점</MenuItem>
                   </Select>
                 </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="점수"
@@ -1141,6 +1168,8 @@ const SubjectTeacherDashboard = () => {
                   onChange={(e) => setRequestForm({ ...requestForm, value: parseInt(e.target.value) || 1 })}
                   inputProps={{ min: 1, max: 10 }}
                 />
+              </Grid>
+              <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
                   <InputLabel>사유</InputLabel>
                   <Select
@@ -1157,6 +1186,8 @@ const SubjectTeacherDashboard = () => {
                       ))}
                   </Select>
                 </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="상세 설명"
@@ -1166,7 +1197,8 @@ const SubjectTeacherDashboard = () => {
                   onChange={(e) => setRequestForm({ ...requestForm, description: e.target.value })}
                   placeholder="상벌점 부여 사유를 자세히 설명해주세요"
                 />
-            </Box>
+              </Grid>
+            </Grid>
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setShowRequestDialog(false)}>취소</Button>
@@ -1417,13 +1449,7 @@ const SubjectTeacherDashboard = () => {
             ].map((item) => (
               <ListItem key={item.text} disablePadding>
                 <ListItemButton
-                  onClick={() => {
-                    setTabValue(item.value);
-                    // 모바일에서 탭 클릭 시 사이드바 자동 닫기
-                    if (isMobileOrSmaller) {
-                      setSidebarOpen(false);
-                    }
-                  }}
+                  onClick={() => setTabValue(item.value)}
                   selected={tabValue === item.value}
                   sx={{
                     '&.Mui-selected': {
@@ -1459,60 +1485,32 @@ const SubjectTeacherDashboard = () => {
           </Box>
         </Drawer>
 
-      {/* 메인 콘텐츠 - 사이드바 제외한 전체 영역 */}
-      <Box sx={{
+      {/* 메인 콘텐츠 */}
+      <Box sx={{ 
         flexGrow: 1, 
-        overflowY: 'auto',
-        overflowX: 'auto',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'stretch',
-        width: isMobileOrSmaller ? '100%' : 'calc(100vw - 280px)',
-        minWidth: isMobileOrSmaller ? '320px' : '600px',
-        maxWidth: isMobileOrSmaller ? '100vw' : '1600px',
-        ml: isMobileOrSmaller && !sidebarOpen ? 0 : isMobileOrSmaller ? 0 : '280px',
-        mx: 'auto',
-        p: isMobileOrSmaller ? 1 : 2,
-        // 가로 스크롤 스타일링
-        '&::-webkit-scrollbar': {
-          height: '8px',
-          width: '8px',
-        },
-        '&::-webkit-scrollbar-track': {
-          background: '#f1f1f1',
-          borderRadius: '4px',
-        },
-        '&::-webkit-scrollbar-thumb': {
-          background: '#888',
-          borderRadius: '4px',
-          '&:hover': {
-            background: '#555',
-          },
-        },
+        overflow: 'auto', 
+        p: 3, 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center',
+        ml: '280px'
       }}>
         {/* 헤더 */}
         <Box sx={{ 
           display: 'flex', 
           justifyContent: 'space-between', 
           alignItems: 'center', 
-          mb: 2, 
+          mb: 4, 
           width: '100%',
-          minWidth: isMobileOrSmaller ? '320px' : '600px',
-          mt: isMobileOrSmaller ? 6 : 0,
-          flexWrap: 'wrap',
-          gap: 1,
+          maxWidth: '100%'
         }}>
-          <Typography variant={isMobileOrSmaller ? "h6" : "h5"} component="h1" sx={{ fontWeight: 'bold' }}>
+          <Typography variant="h5" component="h1" sx={{ fontWeight: 'bold' }}>
             {currentUser.name}선생님 ({currentUser.subject || '과목 미지정'})
           </Typography>
         </Box>
 
         {/* 통계 카드 */}
-        <Grid container spacing={isMobileOrSmaller ? 1 : 3} sx={{ 
-          mb: 2, 
-          width: '100%',
-          minWidth: isMobileOrSmaller ? '320px' : '600px',
-        }}>
+        <Grid container spacing={3} sx={{ mb: 4, width: '100%', maxWidth: '100%' }}>
           <Grid item xs={12} sm={4}>
             <Card sx={{ height: '100%', display: 'flex' }}>
               <CardContent sx={{ textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', width: '100%' }}>
@@ -1546,11 +1544,7 @@ const SubjectTeacherDashboard = () => {
 
           {/* 탭 콘텐츠 */}
           {tabValue === 0 && (
-            <Box sx={{ 
-              width: '100%',
-              minWidth: isMobileOrSmaller ? '320px' : '600px',
-              overflowX: 'auto',
-            }}>
+            <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <TextField
@@ -1831,11 +1825,7 @@ const SubjectTeacherDashboard = () => {
           )}
 
           {tabValue === 1 && (
-            <Box sx={{ 
-              width: '100%',
-              minWidth: isMobileOrSmaller ? '320px' : '600px',
-              overflowX: 'auto',
-            }}>
+            <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <TextField
                   label="요청 검색"
@@ -2052,7 +2042,8 @@ const SubjectTeacherDashboard = () => {
           <Dialog open={showRequestDialog} onClose={() => setShowRequestDialog(false)} maxWidth="md" fullWidth>
             <DialogTitle>상벌점 요청</DialogTitle>
             <DialogContent>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
+              <Grid container spacing={3} sx={{ mt: 1 }}>
+                <Grid item xs={12} sm={6}>
                   <FormControl fullWidth>
                     <InputLabel>학생</InputLabel>
                     <Select
@@ -2068,6 +2059,8 @@ const SubjectTeacherDashboard = () => {
                       )}
                     </Select>
                   </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
                   <FormControl fullWidth>
                     <InputLabel>구분</InputLabel>
                     <Select
@@ -2080,6 +2073,8 @@ const SubjectTeacherDashboard = () => {
                       <MenuItem value="demerit">벌점</MenuItem>
                     </Select>
                   </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
                     label="점수"
@@ -2090,6 +2085,8 @@ const SubjectTeacherDashboard = () => {
                     required
                     size="medium"
                   />
+                </Grid>
+                <Grid item xs={12} sm={6}>
                   <FormControl fullWidth required>
                     <InputLabel>사유</InputLabel>
                     <Select
@@ -2114,6 +2111,8 @@ const SubjectTeacherDashboard = () => {
                       )}
                     </Select>
                   </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
                     label="상세 내용"
@@ -2124,7 +2123,8 @@ const SubjectTeacherDashboard = () => {
                     placeholder="상벌점을 부여하는 구체적인 이유를 작성해주세요."
                     size="medium"
                   />
-              </Box>
+                </Grid>
+              </Grid>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setShowRequestDialog(false)}>취소</Button>
@@ -2196,41 +2196,23 @@ const SubjectTeacherDashboard = () => {
                 </Typography>
               </Box>
                 ) : (
-              <TableContainer 
-                component={Paper}
-                sx={{
-                  overflowX: 'auto',
-                  '&::-webkit-scrollbar': {
-                    height: '8px',
-                  },
-                  '&::-webkit-scrollbar-track': {
-                    backgroundColor: '#f1f1f1',
-                  },
-                  '&::-webkit-scrollbar-thumb': {
-                    backgroundColor: '#888',
-                    borderRadius: '4px',
-                  },
-                  '&::-webkit-scrollbar-thumb:hover': {
-                    backgroundColor: '#555',
-                  },
-                }}
-              >
-                    <Table sx={{ minWidth: 650 }}>
+              <TableContainer component={Paper}>
+                    <Table>
                   <TableHead>
                         <TableRow sx={{ backgroundColor: 'primary.main' }}>
-                          <TableCell sx={{ color: 'white', fontWeight: 'bold', whiteSpace: 'nowrap' }}>처리일시</TableCell>
-                          <TableCell sx={{ color: 'white', fontWeight: 'bold', whiteSpace: 'nowrap' }}>구분</TableCell>
-                          <TableCell sx={{ color: 'white', fontWeight: 'bold', whiteSpace: 'nowrap' }}>사유</TableCell>
-                          <TableCell sx={{ color: 'white', fontWeight: 'bold', whiteSpace: 'nowrap' }}>점수</TableCell>
-                          <TableCell sx={{ color: 'white', fontWeight: 'bold', whiteSpace: 'nowrap' }}>처리교사</TableCell>
-                          <TableCell sx={{ color: 'white', fontWeight: 'bold', whiteSpace: 'nowrap' }}>상세내용</TableCell>
+                          <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>처리일시</TableCell>
+                          <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>구분</TableCell>
+                          <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>사유</TableCell>
+                          <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>점수</TableCell>
+                          <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>처리교사</TableCell>
+                          <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>상세내용</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                         {studentMeritHistory.map((record) => (
                           <TableRow key={record.id}>
-                            <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(record.createdAt)}</TableCell>
-                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                            <TableCell>{formatDate(record.createdAt)}</TableCell>
+                          <TableCell>
                             <Chip
                                 icon={getTypeIcon(record.type)}
                                 label={record.type === 'merit' ? '상점' : '벌점'}
@@ -2239,7 +2221,7 @@ const SubjectTeacherDashboard = () => {
                             />
                           </TableCell>
                             <TableCell>{record.reason}</TableCell>
-                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          <TableCell>
                               <Typography 
                                 variant="body2" 
                                 sx={{ 
@@ -2250,16 +2232,16 @@ const SubjectTeacherDashboard = () => {
                                 {record.type === 'merit' ? '+' : '-'}{record.value}점
                               </Typography>
                             </TableCell>
-                            <TableCell sx={{ whiteSpace: 'nowrap' }}>{record.teacherName || record.teacherId}</TableCell>
+                            <TableCell>{record.teacherName || record.teacherId}</TableCell>
                             <TableCell>
                               <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {record.description || '-'}
                               </Typography>
-                            </TableCell>
-                          </TableRow>
+                          </TableCell>
+                        </TableRow>
                         ))}
                   </TableBody>
-                    </Table>
+                </Table>
               </TableContainer>
                 )}
               </Box>

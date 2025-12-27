@@ -59,6 +59,7 @@ const LogViewer = () => {
       
       setLogs(logsData);
     } catch (error) {
+      console.error('로그 조회 오류:', error);
     } finally {
       setLoading(false);
     }
@@ -137,6 +138,50 @@ const LogViewer = () => {
       minWidth: '100%'
     }}>
       
+      {/* 통계 카드 */}
+      <Grid container spacing={2} sx={{ mb: 3, width: '100%' }}>
+        <Grid item xs={6} sm={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center', p: 2 }}>
+              <Typography variant="h5" color="primary.main">
+                {logs.length}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">전체 로그</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center', p: 2 }}>
+              <Typography variant="h5" color="success.main">
+                {filteredLogs.length}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">필터링된 로그</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center', p: 2 }}>
+              <Typography variant="h5" color="info.main">
+                {majorCategories.length}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">대분류</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center', p: 2 }}>
+              <Typography variant="h5" color="warning.main">
+                {userRoles.length}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">사용자 역할</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
       {/* 필터 */}
       <Paper sx={{ 
         p: 2, 
@@ -147,13 +192,27 @@ const LogViewer = () => {
         <Typography variant="h6" gutterBottom>필터</Typography>
         <Grid container spacing={2} sx={{ width: '100%' }}>
           <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth sx={{ minWidth: '150px' }}>
+            <FormControl fullWidth>
+              <InputLabel>대분류</InputLabel>
+              <Select
+                value={filters.majorCategory}
+                onChange={(e) => setFilters({...filters, majorCategory: e.target.value})}
+                size="small"
+              >
+                <MenuItem value="">전체</MenuItem>
+                {majorCategories.map(category => (
+                  <MenuItem key={category} value={category}>{category}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth>
               <InputLabel>중분류</InputLabel>
               <Select
                 value={filters.middleCategory}
                 onChange={(e) => setFilters({...filters, middleCategory: e.target.value})}
                 size="small"
-                label="중분류"
               >
                 <MenuItem value="">전체</MenuItem>
                 {middleCategories.map(category => (
@@ -163,17 +222,31 @@ const LogViewer = () => {
             </FormControl>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth sx={{ minWidth: '150px' }}>
+            <FormControl fullWidth>
               <InputLabel>소분류</InputLabel>
               <Select
                 value={filters.minorCategory}
                 onChange={(e) => setFilters({...filters, minorCategory: e.target.value})}
                 size="small"
-                label="소분류"
               >
                 <MenuItem value="">전체</MenuItem>
                 {minorCategories.map(category => (
                   <MenuItem key={category} value={category}>{category}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth>
+              <InputLabel>사용자 역할</InputLabel>
+              <Select
+                value={filters.userRole}
+                onChange={(e) => setFilters({...filters, userRole: e.target.value})}
+                size="small"
+              >
+                <MenuItem value="">전체</MenuItem>
+                {userRoles.map(role => (
+                  <MenuItem key={role} value={role}>{role}</MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -185,7 +258,7 @@ const LogViewer = () => {
               value={filters.action}
               onChange={(e) => setFilters({...filters, action: e.target.value})}
               placeholder="생성, 수정, 삭제 등"
-              size="small"
+              size="medium"
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
@@ -196,7 +269,7 @@ const LogViewer = () => {
               value={filters.startDate}
               onChange={(e) => setFilters({...filters, startDate: e.target.value})}
               InputLabelProps={{ shrink: true }}
-              size="small"
+              size="medium"
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
@@ -207,7 +280,7 @@ const LogViewer = () => {
               value={filters.endDate}
               onChange={(e) => setFilters({...filters, endDate: e.target.value})}
               InputLabelProps={{ shrink: true }}
-              size="small"
+              size="medium"
             />
           </Grid>
         </Grid>

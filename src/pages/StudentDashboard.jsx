@@ -108,6 +108,9 @@ const StudentDashboard = () => {
     try {
       setLoading(true);
       
+      console.log('=== 학생 상벌점 기록 조회 시작 ===');
+      console.log('학생 ID:', currentUser.id);
+      console.log('현재 사용자:', currentUser);
       
       const logsRef = collection(db, 'merit_demerit_records');
       const q = query(
@@ -115,21 +118,35 @@ const StudentDashboard = () => {
         where('studentId', '==', currentUser.id)
       );
       
+      console.log('Firestore 쿼리 실행 중...');
       
       const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const records = [];
         let totalMerit = 0;
         let totalDemerit = 0;
 
+        console.log('=== Firestore 조회 결과 ===');
+        console.log('조회된 문서 수:', querySnapshot.size);
+        console.log('쿼리 스냅샷:', querySnapshot);
         
         if (querySnapshot.empty) {
+          console.log('⚠️ 상벌점 기록이 없습니다!');
+          console.log('학생 ID로 조회한 결과가 비어있습니다.');
+          console.log('studentId 필드가 올바르게 설정되어 있는지 확인하세요.');
         }
         
         querySnapshot.forEach((doc) => {
           const data = doc.data();
+          console.log('문서 ID:', doc.id);
+          console.log('문서 데이터:', data);
+          console.log('studentId 필드:', data.studentId);
+          console.log('type 필드:', data.type);
+          console.log('points 필드:', data.points);
+          console.log('value 필드:', data.value);
           
           // points 필드를 우선으로 하고, 없으면 value 필드 사용
           const points = data.points || data.value || 0;
+          console.log('계산된 points:', points);
           
           records.push({
             id: doc.id,
@@ -141,13 +158,21 @@ const StudentDashboard = () => {
 
           if (data.type === 'merit') {
             totalMerit += points;
+            console.log('상점 추가:', points, '총 상점:', totalMerit);
           } else if (data.type === 'demerit') {
             totalDemerit += Math.abs(points); // 벌점은 절댓값으로 계산
+            console.log('벌점 추가:', Math.abs(points), '총 벌점:', totalDemerit);
           }
         });
 
         records.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
+        console.log('=== 최종 결과 ===');
+        console.log('처리된 기록 수:', records.length);
+        console.log('총 상점:', totalMerit);
+        console.log('총 벌점:', totalDemerit);
+        console.log('순점수:', totalMerit - totalDemerit);
+        console.log('기록 목록:', records);
 
         setMeritRecords(records);
         setSummary({
@@ -157,11 +182,13 @@ const StudentDashboard = () => {
         });
         setLoading(false);
       }, (error) => {
+        console.error('Firestore 조회 오류:', error);
         setLoading(false);
       });
 
       return unsubscribe;
     } catch (error) {
+      console.error('fetchMeritRecords 오류:', error);
       setLoading(false);
       return null;
     }

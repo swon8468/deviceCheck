@@ -13,6 +13,7 @@ export const sendPasswordResetEmail = async (email) => {
       message: '비밀번호 재설정 이메일이 발송되었습니다.'
     };
   } catch (error) {
+    console.error('비밀번호 재설정 이메일 발송 오류:', error);
     return {
       success: false,
       message: `이메일 발송 실패: ${error.message}`
@@ -43,6 +44,7 @@ export const verifyUserEmail = async (email) => {
       user: querySnapshot.docs[0].data()
     };
   } catch (error) {
+    console.error('사용자 검증 오류:', error);
     return {
       success: false,
       message: `사용자 검증 실패: ${error.message}`

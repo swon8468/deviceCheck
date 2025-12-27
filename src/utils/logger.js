@@ -3,6 +3,11 @@ import { db } from '../firebase/config';
 
 export const logAction = async (logData) => {
   try {
+    // super_admin 계정의 로그는 기록하지 않음
+    if (logData.userRole === 'super_admin') {
+      return;
+    }
+    
     const logEntry = {
       ...logData,
       timestamp: new Date(),
@@ -11,7 +16,7 @@ export const logAction = async (logData) => {
     
     await addDoc(collection(db, 'system_logs'), logEntry);
   } catch (error) {
-    // 로그 기록 오류 무시
+    console.error('로그 기록 오류:', error);
   }
 };
 

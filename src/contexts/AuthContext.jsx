@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Box, CircularProgress } from '@mui/material';
 import { auth, db } from '../firebase/config';
 import { 
   signInWithEmailAndPassword, 
@@ -27,6 +26,7 @@ export const AuthProvider = ({ children }) => {
   // 학생 로그인 (기존 방식 유지)
   const loginStudent = async (name, birthDate, studentId) => {
     try {
+      console.log('학생 로그인 시도:', { name, birthDate, studentId });
       
       // studentId 필드로 학생 검색
       const studentsRef = collection(db, 'accounts');
@@ -40,6 +40,7 @@ export const AuthProvider = ({ children }) => {
       if (!querySnapshot.empty) {
         const studentDoc = querySnapshot.docs[0];
         const studentData = studentDoc.data();
+        console.log('학생 데이터 조회됨:', studentData);
         
         if (studentData.name === name && studentData.birthDate === birthDate) {
           setCurrentUser({ ...studentData, id: studentDoc.id });
@@ -49,6 +50,7 @@ export const AuthProvider = ({ children }) => {
       }
       return { success: false, error: '학생 정보가 일치하지 않습니다.' };
     } catch (error) {
+      console.error('학생 로그인 오류:', error);
       return { success: false, error: error.message };
     }
   };
@@ -56,9 +58,11 @@ export const AuthProvider = ({ children }) => {
   // 교사/관리자 로그인 (Firebase Authentication 사용)
   const loginTeacher = async (email, password) => {
     try {
+      console.log('교사 로그인 시도:', email);
       
       // Firebase Authentication으로 로그인
       const result = await signInWithEmailAndPassword(auth, email, password);
+      console.log('Firebase Auth 로그인 성공:', result.user.uid);
       
       // Firestore에서 사용자 정보 조회
       const userRef = doc(db, 'accounts', result.user.uid);
@@ -66,6 +70,7 @@ export const AuthProvider = ({ children }) => {
       
       if (userSnap.exists()) {
         const userData = userSnap.data();
+        console.log('사용자 데이터 조회됨:', userData);
         
         // 계정이 비활성화되었는지 확인
         if (userData.status === 'disabled') {
@@ -91,29 +96,33 @@ export const AuthProvider = ({ children }) => {
         setCurrentUser(user);
         setUserRole(userData.role);
         
-        // 로그인 성공 로그 기록
-        try {
-          await addDoc(collection(db, 'system_logs'), {
-            userId: user.uid,
-            userName: user.name || user.email,
-            userRole: user.role,
-            majorCategory: '시스템',
-            middleCategory: '로그인',
-            minorCategory: '',
-            action: '로그인 성공',
-            details: `${user.name || user.email}님이 로그인했습니다.`,
-            timestamp: new Date(),
-            createdAt: new Date()
-          });
-        } catch (logError) {
-          // 로그 기록 오류 무시
+        // 로그인 성공 로그 기록 (super_admin 제외)
+        if (user.role !== 'super_admin') {
+          try {
+            await addDoc(collection(db, 'system_logs'), {
+              userId: user.uid,
+              userName: user.name || user.email,
+              userRole: user.role,
+              majorCategory: '시스템',
+              middleCategory: '로그인',
+              minorCategory: '',
+              action: '로그인 성공',
+              details: `${user.name || user.email}님이 로그인했습니다.`,
+              timestamp: new Date(),
+              createdAt: new Date()
+            });
+          } catch (logError) {
+            console.error('로그 기록 오류:', logError);
+          }
         }
         
         return { success: true };
       } else {
+        console.error('Firestore에 사용자 정보가 없음:', result.user.uid);
         return { success: false, error: '사용자 정보를 찾을 수 없습니다. Firestore에 계정 정보가 등록되지 않았습니다.' };
       }
     } catch (error) {
+      console.error('교사 로그인 오류:', error);
       
       // Firebase Auth 에러 코드별 메시지
       let errorMessage = '로그인에 실패했습니다.';
@@ -134,7 +143,7 @@ export const AuthProvider = ({ children }) => {
           errorMessage = error.message;
       }
       
-      // 로그인 실패 로그 기록
+      // 로그인 실패 로그 기록 (로그인 실패는 모든 경우에 기록)
       try {
         await addDoc(collection(db, 'system_logs'), {
           userId: 'unknown',
@@ -149,7 +158,7 @@ export const AuthProvider = ({ children }) => {
           createdAt: new Date()
         });
       } catch (logError) {
-        // 로그 기록 오류 무시
+        console.error('로그 기록 오류:', logError);
       }
       
       return { success: false, error: errorMessage };
@@ -165,11 +174,14 @@ export const AuthProvider = ({ children }) => {
         const adminData = adminSnap.data();
         setCurrentUser({ ...adminData, uid: adminUid });
         setUserRole(adminData.role);
+        console.log('관리자 계정 복원 완료:', adminData.name);
         return { success: true };
       } else {
+        console.error('관리자 계정 정보를 찾을 수 없습니다.');
         return { success: false, error: '관리자 계정 정보를 찾을 수 없습니다.' };
       }
     } catch (error) {
+      console.error('관리자 계정 복원 오류:', error);
       return { success: false, error: error.message };
     }
   };
@@ -183,9 +195,10 @@ export const AuthProvider = ({ children }) => {
       await signOut(auth);
       setCurrentUser(null);
       setUserRole(null);
+      console.log('로그아웃 완료');
       
-      // 로그아웃 로그 기록
-      if (currentUserData) {
+      // 로그아웃 로그 기록 (super_admin 제외)
+      if (currentUserData && currentUserData.role !== 'super_admin') {
         try {
           await addDoc(collection(db, 'system_logs'), {
             userId: currentUserData.uid,
@@ -200,65 +213,57 @@ export const AuthProvider = ({ children }) => {
             createdAt: new Date()
           });
         } catch (logError) {
-          // 로그 기록 오류 무시
+          console.error('로그 기록 오류:', logError);
         }
       }
     } catch (error) {
+      console.error('로그아웃 오류:', error);
     }
   };
 
   useEffect(() => {
-    // 타임아웃 설정 (10초 후에도 로딩이 완료되지 않으면 강제로 로딩 종료)
-    const timeoutId = setTimeout(() => {
-      if (loading) {
-        setLoading(false);
-      }
-    }, 10000);
-
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      console.log('Auth 상태 변경:', user ? user.uid : '로그아웃');
       
-      try {
       if (user) {
+        try {
           // Firebase Auth 사용자인 경우 (교사/관리자)
           const userRef = doc(db, 'accounts', user.uid);
           const userSnap = await getDoc(userRef);
           if (userSnap.exists()) {
             const userData = userSnap.data();
+            console.log('자동 로그인 사용자 데이터:', userData);
             
             // 계정이 비활성화되었는지 확인
             if (userData.status === 'disabled') {
+              console.log('비활성화된 계정으로 자동 로그인 시도됨:', user.email);
               // 비활성화된 계정이므로 로그아웃 처리
               await signOut(auth);
               setCurrentUser(null);
               setUserRole(null);
-              setLoading(false);
-              clearTimeout(timeoutId);
               return;
             }
             
             setCurrentUser({ ...userData, uid: user.uid });
             setUserRole(userData.role);
           } else {
+            console.error('자동 로그인 시 Firestore에 사용자 정보가 없음');
             setCurrentUser(null);
             setUserRole(null);
           }
-        } else {
+        } catch (error) {
+          console.error('사용자 정보 조회 오류:', error);
           setCurrentUser(null);
           setUserRole(null);
         }
-      } catch (error) {
+      } else {
         setCurrentUser(null);
         setUserRole(null);
-      } finally {
-        setLoading(false);
-        clearTimeout(timeoutId);
       }
+      setLoading(false);
     });
 
-    return () => {
-      unsubscribe();
-      clearTimeout(timeoutId);
-    };
+    return unsubscribe;
   }, []);
 
   const value = {
@@ -275,21 +280,7 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={value}>
-      {loading ? (
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            minHeight: '100vh',
-            width: '100vw'
-          }}
-        >
-          <CircularProgress />
-        </Box>
-      ) : (
-        children
-      )}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };

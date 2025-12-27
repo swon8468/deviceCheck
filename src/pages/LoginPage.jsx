@@ -155,55 +155,26 @@ const LoginPage = () => {
       className="page-container"
       sx={{
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #E8F5E9 0%, #E1F5FE 50%, #F3E5F5 100%)', // 부드러운 파스텔 그라데이션
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        py: 4,
-        position: 'relative',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'radial-gradient(circle at 20% 50%, rgba(255,255,255,0.3) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(255,255,255,0.2) 0%, transparent 50%)',
-          pointerEvents: 'none'
-        }
+        py: 4
       }}
     >
-      <Container maxWidth="sm" className="content-wrapper" sx={{ position: 'relative', zIndex: 1 }}>
+      <Container maxWidth="sm" className="content-wrapper">
         <Box sx={{ textAlign: 'center', mb: 4, width: '100%' }}>
           {/* 로고 */}
-          <Box sx={{ 
-            mb: 3,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center'
-          }}>
-            <Box
-              sx={{
-                width: 100,
-                height: 100,
-                borderRadius: '50%',
-                backgroundColor: 'white',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-                mb: 2
+          <Box sx={{ mb: 3 }}>
+            <img 
+              src={logoImage} 
+              alt="로고" 
+              style={{ 
+                width: '80px', 
+                height: '80px',
+                filter: 'brightness(0) invert(1)'
               }}
-            >
-              <img 
-                src={logoImage} 
-                alt="로고" 
-                style={{ 
-                  width: '70px', 
-                  height: '70px'
-                }}
-              />
-            </Box>
+            />
           </Box>
           
           <Typography 
@@ -212,33 +183,21 @@ const LoginPage = () => {
             gutterBottom
             sx={{ 
               fontWeight: 'bold',
-              color: '#1976d2',
-              mb: 1
+              color: 'white',
+              textShadow: '0 2px 4px rgba(0,0,0,0.3)'
             }}
           >
             규칙 위반 관리
           </Typography>
           
-          <Typography
-            variant="body2"
-            sx={{
-              color: 'text.secondary',
-              mb: 2
-            }}
-          >
-            올바른 전자기기 사용 관리 시스템
-          </Typography>
           
           <Button
             variant="text"
             sx={{ 
-              color: '#1976d2',
+              color: 'rgba(255,255,255,0.8)',
               textDecoration: 'underline',
               mt: 1,
-              fontSize: '0.875rem',
-              '&:hover': {
-                backgroundColor: 'rgba(25, 118, 210, 0.08)'
-              }
+              fontSize: '0.875rem'
             }}
             onClick={() => {
               Swal.fire({
@@ -287,15 +246,14 @@ const LoginPage = () => {
         </Box>
 
         <Paper 
-          elevation={0} 
+          elevation={8} 
           sx={{ 
-            borderRadius: 4,
+            borderRadius: 3,
             width: '100%',
             maxWidth: isMobile ? '100%' : '500px',
-            background: 'white',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.8)',
-            overflow: 'hidden'
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)'
           }}
         >
           <Tabs

@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Box, Container, Typography, Card, CardContent, Grid, Button, Tabs, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl, InputLabel, Select, MenuItem, IconButton, Alert, useTheme, useMediaQuery, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider
 } from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Logout as LogoutIcon, School as SchoolIcon, Person as PersonIcon, Group as GroupIcon, Dashboard as DashboardIcon, Class as ClassIcon, FileUpload as FileUploadIcon, FileDownload as FileDownloadIcon, Warning as WarningIcon, AdminPanelSettings as AdminIcon, DeleteForever as DeleteForeverIcon, Refresh as RefreshIcon, CloudDownload as CloudDownloadIcon, Menu as MenuIcon, Assessment as AssessmentIcon
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Logout as LogoutIcon, School as SchoolIcon, Person as PersonIcon, Group as GroupIcon, Dashboard as DashboardIcon, Class as ClassIcon, FileUpload as FileUploadIcon, FileDownload as FileDownloadIcon, Warning as WarningIcon, AdminPanelSettings as AdminIcon, DeleteForever as DeleteForeverIcon, Refresh as RefreshIcon, CloudDownload as CloudDownloadIcon, Menu as MenuIcon
 } from '@mui/icons-material';
 import { Badge } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
@@ -75,11 +75,14 @@ const AdminDashboard = () => {
   
   // 초기화 동의 상태
   const [resetRequests, setResetRequests] = useState([]);
+  const [inquiries, setInquiries] = useState([]);
   const [showResetApprovalDialog, setShowResetApprovalDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showClassDetailsDialog, setShowClassDetailsDialog] = useState(false);
+  const [showInquiryDetailDialog, setShowInquiryDetailDialog] = useState(false);
   const [showMeritReasonDialog, setShowMeritReasonDialog] = useState(false);
+  const [selectedInquiry, setSelectedInquiry] = useState(null);
   const [selectedClass, setSelectedClass] = useState(null);
   const [meritReasonForm, setMeritReasonForm] = useState({
     type: 'merit',
@@ -115,13 +118,6 @@ const AdminDashboard = () => {
     key: 'studentId',
     direction: 'asc'
   });
-  const [meritSortConfig, setMeritSortConfig] = useState({
-    key: 'createdAt',
-    direction: 'desc'
-  });
-  const [allMeritRecords, setAllMeritRecords] = useState([]);
-  const [selectedMeritRecord, setSelectedMeritRecord] = useState(null);
-  const [showMeritDetailDialog, setShowMeritDetailDialog] = useState(false);
 
   // 정렬 함수들
   const handleClassSort = (key) => {
@@ -140,13 +136,6 @@ const AdminDashboard = () => {
 
   const handleStudentSort = (key) => {
     setStudentSortConfig(prev => ({
-      key,
-      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
-    }));
-  };
-
-  const handleMeritSort = (key) => {
-    setMeritSortConfig(prev => ({
       key,
       direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
     }));
@@ -260,12 +249,6 @@ const AdminDashboard = () => {
         ...prev,
         name: className
       }));
-    } else if (!classForm.grade || !classForm.class) {
-      // 학년이나 반이 비어있으면 클래스명도 비우기
-      setClassForm(prev => ({
-        ...prev,
-        name: ''
-      }));
     }
   }, [classForm.grade, classForm.class]);
   
@@ -302,10 +285,10 @@ const AdminDashboard = () => {
         fetchStudents(),
         fetchMeritRecords(),
         fetchMeritReasons(),
-        fetchAllMeritRecords(),
+        fetchInquiries()
       ]);
       
-      // 최고 관리자 대시보드 접근 로그 기록 (super_admin은 기록하지 않음)
+      // 최고 관리자 대시보드 접근 로그 기록 (super_admin 제외)
       if (currentUser.role !== 'super_admin') {
         try {
           await addDoc(collection(db, 'system_logs'), {
@@ -321,7 +304,7 @@ const AdminDashboard = () => {
             createdAt: new Date()
           });
         } catch (logError) {
-          // 로그 기록 오류 무시
+          console.error('시스템 로그 기록 오류:', logError);
         }
       }
     } catch (error) {
@@ -416,7 +399,8 @@ const AdminDashboard = () => {
 
   // 학생별 누적 점수 계산 및 업데이트 함수
   const updateStudentCumulativeScores = async (recordsData) => {
-    
+    console.log('=== AdminDashboard updateStudentCumulativeScores 시작 ===');
+    console.log('기록 데이터:', recordsData);
     
     // 학생별로 점수 합계 계산
     const studentScores = {};
@@ -430,10 +414,10 @@ const AdminDashboard = () => {
       const points = record.points || 0;
       studentScores[studentId] += points;
       
-      
+      console.log(`학생 ${studentId}: ${record.type} ${points}점 추가, 누적: ${studentScores[studentId]}`);
     });
     
-    
+    console.log('계산된 학생별 점수:', studentScores);
     
     // accounts 컬렉션의 cumulativeScore 업데이트
     const updatePromises = Object.entries(studentScores).map(async ([studentId, score]) => {
@@ -442,9 +426,9 @@ const AdminDashboard = () => {
         await updateDoc(accountRef, {
           cumulativeScore: score
         });
-        
+        console.log(`✅ accounts 컬렉션 업데이트 완료 - 학생 ${studentId}: ${score}점`);
       } catch (error) {
-        // accounts 컬렉션 업데이트 실패
+        console.error(`❌ accounts 컬렉션 업데이트 실패 - 학생 ${studentId}:`, error);
       }
     });
     
@@ -454,12 +438,13 @@ const AdminDashboard = () => {
     setStudents(prevStudents => {
       const updatedStudents = prevStudents.map(student => {
         const cumulativeScore = studentScores[student.id] || 0;
-        
+        console.log(`학생 ${student.name}(${student.id}) 누적 점수: ${cumulativeScore}`);
         return {
           ...student,
           cumulativeScore: cumulativeScore
         };
       });
+      console.log('업데이트된 학생 데이터:', updatedStudents);
       return updatedStudents;
     });
   };
@@ -477,7 +462,8 @@ const AdminDashboard = () => {
   // 학생 상벌점 이력 조회 함수
   const fetchStudentMeritHistory = async (studentId) => {
     try {
-    
+      console.log('=== 학생 상벌점 이력 조회 시작 ===');
+      console.log('학생 ID:', studentId);
       
       const meritRecordsRef = collection(db, 'merit_demerit_records');
       
@@ -511,10 +497,13 @@ const AdminDashboard = () => {
       // 최신순으로 정렬
       const sortedRecords = uniqueRecords.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       
+      console.log('조회된 상벌점 기록 수:', sortedRecords.length);
+      console.log('상벌점 기록:', sortedRecords);
       
       setStudentMeritHistory(sortedRecords);
       return sortedRecords;
     } catch (error) {
+      console.error('학생 상벌점 이력 조회 오류:', error);
       setError('학생 상벌점 이력 조회 중 오류가 발생했습니다: ' + error.message);
       return [];
     }
@@ -544,72 +533,115 @@ const AdminDashboard = () => {
     setStudents(studentsData);
   };
 
-  // 모든 상벌점 기록 조회 (기존 fetchStudentMeritHistory 로직 활용)
-  const fetchAllMeritRecords = useCallback(async () => {
+  const fetchInquiries = async () => {
     try {
-      const recordsRef = collection(db, 'merit_demerit_records');
-      const q = query(recordsRef, orderBy('createdAt', 'desc'));
+      console.log('최고 관리자 fetchInquiries 호출됨');
+      
+      // 모든 문의 조회
+      const inquiriesRef = collection(db, 'inquiries');
+      const q = query(inquiriesRef, orderBy('createdAt', 'desc'));
       
       const unsubscribe = onSnapshot(q, (snapshot) => {
-        const recordsData = snapshot.docs.map(doc => {
-          const data = doc.data();
-          
-          // 처리 교사 정보 설정 (HomeroomTeacherDashboard의 로직 활용)
-          let processedTeacherName = 'N/A';
-          
-          // 1. processedByName이 있으면 사용 (요청 승인 시 설정된 처리교사)
-          if (data.processedByName) {
-            processedTeacherName = data.processedByName;
-          }
-          // 2. requesterName이 있으면 사용 (요청한 교사)
-          else if (data.requesterName) {
-            processedTeacherName = data.requesterName;
-          }
-          // 3. teacherName이 있으면 사용 (기존 필드)
-          else if (data.teacherName) {
-            processedTeacherName = data.teacherName;
-          }
-          // 4. 담임교사가 직접 등록한 경우 담임교사 이름 사용
-          else if (data.creatorRole === 'homeroom_teacher' && data.creatorName) {
-            processedTeacherName = data.creatorName;
-          }
-          // 5. creatorName이 있으면 사용
-          else if (data.creatorName) {
-            processedTeacherName = data.creatorName;
-          }
-          
-          return {
-            id: doc.id,
-            ...data,
-            points: data.points || data.value || 0,
-            value: data.points || data.value || 0, // 호환성을 위해
-            createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
-            updatedAt: data.updatedAt?.toDate?.() || (data.updatedAt ? new Date(data.updatedAt) : null),
-            processedTeacherName: processedTeacherName
-          };
-        });
-        
-        // 중복 제거 (같은 문서가 여러 번 나올 수 있음)
-        const uniqueRecords = recordsData.filter((record, index, self) => 
-          index === self.findIndex(r => r.id === record.id)
-        );
-        
-        setAllMeritRecords(uniqueRecords);
+        console.log('최고 관리자 문의 조회 결과:', snapshot.size, '개');
+        const inquiriesData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate?.() || new Date(doc.data().createdAt),
+          updatedAt: doc.data().updatedAt?.toDate?.() || new Date(doc.data().updatedAt)
+        }));
+        console.log('최고 관리자 문의 데이터:', inquiriesData);
+        setInquiries(inquiriesData);
       }, (error) => {
-        setError('상벌점 기록 조회 중 오류가 발생했습니다: ' + error.message);
+        console.error('최고 관리자 문의 조회 오류:', error);
+        setError(error.message);
       });
-
+      
       return unsubscribe;
     } catch (error) {
-      setError('상벌점 기록 조회 중 오류가 발생했습니다: ' + error.message);
+      console.error('최고 관리자 fetchInquiries 오류:', error);
+      setError(error.message);
       return null;
     }
-  }, []);
+  };
 
+  const handleAddReply = async (inquiryId, replyContent) => {
+    try {
+      if (!replyContent.trim()) {
+        await Swal.fire({
+          title: '오류',
+          text: '답변 내용을 입력해주세요.',
+          icon: 'error',
+          customClass: {
+            container: 'swal2-container-high-z'
+          }
+        });
+        return;
+      }
+
+      const replyData = {
+        content: replyContent.trim(),
+        authorId: currentUser.uid,
+        authorName: currentUser.name,
+        authorRole: currentUser.role,
+        createdAt: new Date()
+      };
+
+      const inquiryRef = doc(db, 'inquiries', inquiryId);
+      const inquiryDoc = await getDoc(inquiryRef);
+      
+      if (inquiryDoc.exists()) {
+        const currentReplies = inquiryDoc.data().replies || [];
+        await updateDoc(inquiryRef, {
+          replies: [...currentReplies, replyData],
+          status: 'answered',
+          updatedAt: new Date()
+        });
+
+        await Swal.fire({
+          title: '성공',
+          text: '답변이 성공적으로 등록되었습니다.',
+          icon: 'success',
+          customClass: {
+            container: 'swal2-container-high-z'
+          }
+        });
+
+        // 로그 기록 (super_admin 제외)
+        if (currentUser.role !== 'super_admin') {
+          try {
+            await addDoc(collection(db, 'system_logs'), {
+              userId: currentUser.uid,
+              userName: currentUser.name || currentUser.email,
+              userRole: currentUser.role,
+              majorCategory: '문의 관리',
+              middleCategory: '답변 등록',
+              minorCategory: '',
+              action: '문의 답변',
+              details: `${currentUser.name || currentUser.email}님이 문의 ID: ${inquiryId}에 답변을 등록했습니다.`,
+              timestamp: new Date(),
+              createdAt: new Date()
+            });
+          } catch (logError) {
+            // 로그 기록 오류 처리
+          }
+        }
+      }
+    } catch (error) {
+      await Swal.fire({
+        title: '오류',
+        text: '답변 등록 중 오류가 발생했습니다.',
+        icon: 'error',
+        customClass: {
+          container: 'swal2-container-high-z'
+        }
+      });
+    }
+  };
 
   // 비밀번호 재설정 이메일 발송 (SweetAlert 사용)
   const handlePasswordReset = async (email) => {
     try {
+      console.log('handlePasswordReset 함수 호출됨, 이메일:', email);
       
       if (!email || !email.trim()) {
         await Swal.fire({
@@ -664,7 +696,7 @@ const AdminDashboard = () => {
           }
         });
         
-        // 시스템 로그 기록 (super_admin은 기록하지 않음)
+        // 시스템 로그 기록 (super_admin 제외)
         if (currentUser.role !== 'super_admin') {
           try {
             await addDoc(collection(db, 'system_logs'), {
@@ -678,11 +710,11 @@ const AdminDashboard = () => {
               details: `${currentUser.name || currentUser.email}님이 ${email}에게 비밀번호 재설정 이메일을 발송했습니다.`,
               timestamp: new Date(),
               createdAt: new Date()
-          });
-        } catch (logError) {
-          // 로그 기록 오류 무시
+            });
+          } catch (logError) {
+            console.error('로그 기록 오류:', logError);
+          }
         }
-      }
       } else {
         await Swal.fire({
           title: '오류',
@@ -694,6 +726,7 @@ const AdminDashboard = () => {
         });
       }
     } catch (error) {
+      console.error('비밀번호 재설정 오류:', error);
       await Swal.fire({
         title: '오류',
         text: '비밀번호 재설정 중 오류가 발생했습니다.',
@@ -844,30 +877,6 @@ const AdminDashboard = () => {
     });
   }, [filteredTeachers, teacherSortConfig]);
 
-  // 정렬된 상벌점 기록
-  const sortedMeritRecords = useMemo(() => {
-    if (!meritSortConfig.key) return allMeritRecords;
-    return [...allMeritRecords].sort((a, b) => {
-      let comparison = 0;
-      const aValue = a[meritSortConfig.key];
-      const bValue = b[meritSortConfig.key];
-      
-      if (aValue === null || aValue === undefined) return 1;
-      if (bValue === null || bValue === undefined) return -1;
-      
-      if (meritSortConfig.key === 'createdAt') {
-        comparison = new Date(aValue) - new Date(bValue);
-      } else if (typeof aValue === 'string' && typeof bValue === 'string') {
-        comparison = aValue.localeCompare(bValue, 'ko-KR');
-      } else if (typeof aValue === 'number' && typeof bValue === 'number') {
-        comparison = aValue - bValue;
-      } else {
-        comparison = String(aValue).localeCompare(String(bValue), 'ko-KR');
-      }
-      return meritSortConfig.direction === 'asc' ? comparison : -comparison;
-    });
-  }, [allMeritRecords, meritSortConfig]);
-
   // 정렬된 필터링된 학생 데이터
   const sortedFilteredStudents = useMemo(() => {
     if (!studentSortConfig.key) return filteredStudents;
@@ -929,114 +938,6 @@ const AdminDashboard = () => {
         return;
       }
 
-      // 원래 클래스 정보 가져오기
-      const originalClass = classes.find(c => c.id === editingItem.id);
-      if (!originalClass) {
-        await Swal.fire({
-          title: '오류',
-          text: '클래스를 찾을 수 없습니다.',
-          icon: 'error',
-          customClass: {
-            container: 'swal2-container-high-z'
-          }
-        });
-        return;
-      }
-
-      const newGrade = parseInt(classForm.grade);
-      const newClass = parseInt(classForm.class);
-      const oldGrade = originalClass.grade;
-      const oldClass = originalClass.class;
-
-      // 학년/반이 변경되었는지 확인
-      const isGradeOrClassChanged = (oldGrade !== newGrade) || (oldClass !== newClass);
-
-      // 학년/반이 변경된 경우, 새로운 학년/반 조합이 이미 존재하는지 확인
-      if (isGradeOrClassChanged) {
-        const existingClass = classes.find(c => 
-          c.grade === newGrade && 
-          c.class === newClass && 
-          c.id !== editingItem.id // 현재 수정 중인 클래스는 제외
-        );
-        
-        if (existingClass) {
-          await Swal.fire({
-            title: '오류',
-            text: `${newGrade}학년 ${newClass}반은 이미 존재합니다. 중복된 클래스로 변경할 수 없습니다.`,
-            icon: 'error',
-            customClass: {
-              container: 'swal2-container-high-z'
-            }
-          });
-          return;
-        }
-
-        // 매우 위험한 작업이므로 확인 다이얼로그 표시 (2단계 확인)
-        const firstConfirm = await Swal.fire({
-          title: '⚠️ 매우 위험한 작업',
-          html: `
-            <div style="text-align: left;">
-              <p><strong>클래스 이름을 변경하시겠습니까?</strong></p>
-              <p style="color: #d32f2f; font-weight: bold;">⚠️ 이 작업은 되돌릴 수 없습니다!</p>
-              <ul style="margin: 10px 0; padding-left: 20px;">
-                <li>클래스 이름: <strong>${oldGrade}학년 ${oldClass}반</strong> → <strong>${newGrade}학년 ${newClass}반</strong></li>
-                <li>해당 클래스의 <strong>모든 학생</strong>의 학년/반 정보도 함께 변경됩니다</li>
-                <li>학생들의 학번(studentId)도 자동으로 재생성됩니다</li>
-                <li>이 작업은 영구적으로 적용되며 복구할 수 없습니다</li>
-              </ul>
-            </div>
-          `,
-          icon: 'warning',
-          showCancelButton: true,
-          confirmButtonText: '계속',
-          cancelButtonText: '취소',
-          confirmButtonColor: '#ff9800',
-          cancelButtonColor: '#6c757d',
-          customClass: {
-            container: 'swal2-container-high-z'
-          }
-        });
-
-        if (!firstConfirm.isConfirmed) {
-          return;
-        }
-
-        // 2단계 최종 확인
-        const finalConfirm = await Swal.fire({
-          title: '⚠️ 최종 확인',
-          html: `
-            <div style="text-align: center;">
-              <p style="font-size: 18px; font-weight: bold; color: #d32f2f; margin-bottom: 20px;">
-                정말로 변경하시겠습니까?
-              </p>
-              <p style="font-size: 16px; margin-bottom: 10px;">
-                <strong>${oldGrade}학년 ${oldClass}반</strong> → <strong>${newGrade}학년 ${newClass}반</strong>
-              </p>
-              <p style="color: #d32f2f; font-weight: bold;">
-                이 작업은 되돌릴 수 없습니다!
-              </p>
-            </div>
-          `,
-          icon: 'error',
-          showCancelButton: true,
-          confirmButtonText: '변경 실행',
-          cancelButtonText: '취소',
-          confirmButtonColor: '#d32f2f',
-          cancelButtonColor: '#6c757d',
-          customClass: {
-            container: 'swal2-container-high-z'
-          }
-        });
-
-        if (!finalConfirm.isConfirmed) {
-          return;
-        }
-
-        if (!confirmResult.isConfirmed) {
-          return;
-        }
-      }
-
       // 담임 교사가 이미 다른 클래스를 담당하고 있는지 확인 (활성화된 교사만 고려, 현재 클래스 제외)
       if (classForm.homeroomTeacher) {
         const existingClass = classes.find(c => 
@@ -1058,8 +959,8 @@ const AdminDashboard = () => {
 
       const classData = {
         name: `${classForm.grade}학년 ${classForm.class}반`,
-        grade: newGrade,
-        class: newClass,
+        grade: parseInt(classForm.grade),
+        class: parseInt(classForm.class),
         homeroomTeacher: classForm.homeroomTeacher,
         homeroomTeacherId: classForm.homeroomTeacher, // homeroomTeacherId도 함께 설정
         subjectTeachers: classForm.subjectTeachers,
@@ -1068,61 +969,15 @@ const AdminDashboard = () => {
       
       // 클래스 정보 업데이트
       await updateDoc(doc(db, 'classes', editingItem.id), classData);
-
-      // 학년/반이 변경된 경우, 해당 클래스의 모든 학생들의 학년/반 정보도 업데이트
-      if (isGradeOrClassChanged) {
-        
-        // 기존 클래스의 모든 학생 조회
-        const studentsRef = collection(db, 'accounts');
-        const oldStudentsQuery = query(
-          studentsRef, 
-          where('role', '==', 'student'),
-          where('grade', '==', oldGrade),
-          where('class', '==', oldClass)
-        );
-        const oldStudentsSnapshot = await getDocs(oldStudentsQuery);
-        
-        
-        // 배치 업데이트를 사용하여 모든 학생의 학년/반 정보 업데이트
-        const batch = writeBatch(db);
-        let updateCount = 0;
-        
-        oldStudentsSnapshot.forEach((studentDoc) => {
-          const studentData = studentDoc.data();
-          
-          // 새로운 학번 생성
-          const newStudentId = `${newGrade}${newClass.toString().padStart(2, '0')}${studentData.number.toString().padStart(2, '0')}`;
-          
-          
-          batch.update(studentDoc.ref, {
-            grade: newGrade,
-            class: newClass,
-            studentId: newStudentId,
-            updatedAt: new Date()
-          });
-          updateCount++;
-        });
-        
-        // 배치 업데이트 실행
-        if (updateCount > 0) {
-          await batch.commit();
-          
-          // 업데이트 확인을 위해 다시 조회
-          const newStudentsQuery = query(
-            studentsRef, 
-            where('role', '==', 'student'),
-            where('grade', '==', newGrade),
-            where('class', '==', newClass)
-          );
-          const verifySnapshot = await getDocs(newStudentsQuery);
-        }
-      }
       
       // 담임 교사가 변경된 경우, 해당 클래스의 모든 학생들의 담임 교사 정보도 업데이트
       if (classForm.homeroomTeacher) {
+        console.log(`클래스 ${classForm.grade}학년 ${classForm.class}반의 담임 교사를 ${classForm.homeroomTeacher}로 변경합니다.`);
         
         // 기존 담임 교사가 다른 교사인 경우, 이전 담임 교사가 담당하던 다른 클래스의 학생들도 확인
-        if (originalClass.homeroomTeacher && originalClass.homeroomTeacher !== classForm.homeroomTeacher) {
+        const originalClass = classes.find(c => c.id === editingItem.id);
+        if (originalClass && originalClass.homeroomTeacher && originalClass.homeroomTeacher !== classForm.homeroomTeacher) {
+          console.log(`이전 담임 교사 ${originalClass.homeroomTeacher}가 다른 클래스로 이동했습니다.`);
           
           // 이전 담임 교사가 담당하던 다른 클래스의 학생들 조회
           const otherClassesQuery = query(
@@ -1132,6 +987,7 @@ const AdminDashboard = () => {
           const otherClassesSnapshot = await getDocs(otherClassesQuery);
           
           if (otherClassesSnapshot.size > 0) {
+            console.log(`이전 담임 교사가 담당하던 다른 클래스 수: ${otherClassesSnapshot.size}개`);
             
             // 각 클래스의 학생들 조회하여 담임 교사 정보 업데이트
             for (const classDoc of otherClassesSnapshot.docs) {
@@ -1148,6 +1004,10 @@ const AdminDashboard = () => {
                 const otherBatch = writeBatch(db);
                 otherStudentsSnapshot.forEach((studentDoc) => {
                   const studentData = studentDoc.data();
+                  console.log(`다른 클래스 학생 ${studentData.name}의 담임 교사 정보를 null로 설정:`, {
+                    기존_homeroomTeacher: studentData.homeroomTeacher,
+                    기존_homeroomTeacherId: studentData.homeroomTeacherId
+                  });
                   
                   otherBatch.update(studentDoc.ref, {
                     homeroomTeacher: null,
@@ -1156,21 +1016,23 @@ const AdminDashboard = () => {
                   });
                 });
                 await otherBatch.commit();
+                console.log(`${otherStudentsSnapshot.size}명의 다른 클래스 학생 정보가 업데이트되었습니다.`);
               }
             }
           }
         }
         
-        // 해당 클래스의 모든 학생 조회 (새로운 학년/반 기준)
+        // 해당 클래스의 모든 학생 조회
         const studentsRef = collection(db, 'accounts');
         const studentsQuery = query(
           studentsRef, 
           where('role', '==', 'student'),
-          where('grade', '==', newGrade),
-          where('class', '==', newClass)
+          where('grade', '==', parseInt(classForm.grade)),
+          where('class', '==', parseInt(classForm.class))
         );
         const studentsSnapshot = await getDocs(studentsQuery);
         
+        console.log(`해당 클래스의 학생 수: ${studentsSnapshot.size}명`);
         
         // 배치 업데이트를 사용하여 모든 학생의 담임 교사 정보 업데이트
         const batch = writeBatch(db);
@@ -1178,6 +1040,11 @@ const AdminDashboard = () => {
         
         studentsSnapshot.forEach((studentDoc) => {
           const studentData = studentDoc.data();
+          console.log(`학생 ${studentData.name}의 담임 교사 정보 업데이트:`, {
+            기존_homeroomTeacher: studentData.homeroomTeacher,
+            기존_homeroomTeacherId: studentData.homeroomTeacherId,
+            새로운_담임교사_ID: classForm.homeroomTeacher
+          });
           
           batch.update(studentDoc.ref, {
             homeroomTeacher: classForm.homeroomTeacher,
@@ -1190,9 +1057,15 @@ const AdminDashboard = () => {
         // 배치 업데이트 실행
         if (updateCount > 0) {
           await batch.commit();
+          console.log(`${updateCount}명의 학생 정보가 업데이트되었습니다.`);
           
           // 업데이트 확인을 위해 다시 조회
           const verifySnapshot = await getDocs(studentsQuery);
+          console.log('업데이트 확인 - 학생들의 담임 교사 정보:');
+          verifySnapshot.forEach((doc) => {
+            const data = doc.data();
+            console.log(`학생 ${data.name}: homeroomTeacher = ${data.homeroomTeacher}, homeroomTeacherId = ${data.homeroomTeacherId}`);
+          });
         }
       }
       
@@ -1203,23 +1076,12 @@ const AdminDashboard = () => {
       
       // 데이터 새로고침
       await fetchClasses();
-      await fetchStudents(); // 학생 정보도 새로고침
       
       // 성공 메시지 표시
-      let successMessage = '클래스 정보가 성공적으로 수정되었습니다!';
-      if (isGradeOrClassChanged) {
-        successMessage = `클래스 이름이 ${oldGrade}학년 ${oldClass}반에서 ${newGrade}학년 ${newClass}반으로 변경되었고, 해당 클래스의 모든 학생 정보도 함께 업데이트되었습니다!`;
-      } else if (classForm.homeroomTeacher) {
-        successMessage = '클래스와 해당 클래스 학생들의 담임 교사 정보가 성공적으로 수정되었습니다!';
-      }
-      
       await Swal.fire({
         title: '성공',
-        text: successMessage,
-        icon: 'success',
-        customClass: {
-          container: 'swal2-container-high-z'
-        }
+        text: '클래스와 해당 클래스 학생들의 담임 교사 정보가 성공적으로 수정되었습니다!',
+        icon: 'success'
       });
     } catch (error) {
       setError('클래스 수정 중 오류가 발생했습니다: ' + error.message);
@@ -1228,11 +1090,11 @@ const AdminDashboard = () => {
 
   const handleAddClass = async () => {
     try {
-      // 필수 필드 검증: 학년, 반, 담임교사
-      if (!classForm.grade || !classForm.class || !classForm.homeroomTeacher) {
+      // 필수 필드 검증
+      if (!classForm.grade || !classForm.class) {
         await Swal.fire({
           title: '오류',
-          text: '학년, 반, 담임교사를 모두 입력해주세요.',
+          text: '학년과 반을 입력해주세요.',
           icon: 'error',
           customClass: {
             container: 'swal2-container-high-z'
@@ -1289,6 +1151,7 @@ const AdminDashboard = () => {
       
       // 담임 교사가 지정된 경우, 해당 클래스의 모든 학생들의 담임 교사 정보도 업데이트
       if (classForm.homeroomTeacher) {
+        console.log(`새 클래스 ${classForm.grade}학년 ${classForm.class}반의 담임 교사를 ${classForm.homeroomTeacher}로 설정합니다.`);
         
         // 해당 클래스의 모든 학생 조회
         const studentsRef = collection(db, 'accounts');
@@ -1300,6 +1163,7 @@ const AdminDashboard = () => {
         );
         const studentsSnapshot = await getDocs(studentsQuery);
         
+        console.log(`해당 클래스의 학생 수: ${studentsSnapshot.size}명`);
         
         // 배치 업데이트를 사용하여 모든 학생의 담임 교사 정보 업데이트
         if (studentsSnapshot.size > 0) {
@@ -1308,6 +1172,11 @@ const AdminDashboard = () => {
           
           studentsSnapshot.forEach((studentDoc) => {
             const studentData = studentDoc.data();
+            console.log(`학생 ${studentData.name}의 담임 교사 정보 업데이트:`, {
+              기존_homeroomTeacher: studentData.homeroomTeacher,
+              기존_homeroomTeacherId: studentData.homeroomTeacherId,
+              새로운_담임교사_ID: classForm.homeroomTeacher
+            });
             
             batch.update(studentDoc.ref, {
               homeroomTeacher: classForm.homeroomTeacher,
@@ -1319,13 +1188,19 @@ const AdminDashboard = () => {
           
           // 배치 업데이트 실행
           await batch.commit();
+          console.log(`${updateCount}명의 학생 정보가 업데이트되었습니다.`);
           
           // 업데이트 확인을 위해 다시 조회
           const verifySnapshot = await getDocs(studentsQuery);
+          console.log('업데이트 확인 - 학생들의 담임 교사 정보:');
+          verifySnapshot.forEach((doc) => {
+            const data = doc.data();
+            console.log(`학생 ${data.name}: homeroomTeacher = ${data.homeroomTeacher}, homeroomTeacherId = ${data.homeroomTeacherId}`);
+          });
         }
       }
       
-      // 로그 기록 (super_admin은 기록하지 않음)
+      // 로그 기록 (super_admin 제외)
       if (currentUser.role !== 'super_admin') {
         try {
           await addDoc(collection(db, 'system_logs'), {
@@ -1512,9 +1387,11 @@ const AdminDashboard = () => {
           try {
             const restoreResult = await restoreAdminAccount(currentAdminData.uid);
             if (!restoreResult.success) {
+              console.error('관리자 계정 복원 실패:', restoreResult.error);
               // 복원 실패 시에도 계정 생성은 성공했으므로 계속 진행
             }
           } catch (restoreError) {
+            console.error('관리자 계정 복원 오류:', restoreError);
             // 복원 실패 시에도 계정 생성은 성공했으므로 계속 진행
           }
         }
@@ -1533,8 +1410,7 @@ const AdminDashboard = () => {
           }
         });
         
-        // 시스템 로그 기록
-        // super_admin은 기록하지 않음
+        // 시스템 로그 기록 (super_admin 제외)
         if (currentAdminData.role !== 'super_admin') {
           try {
             const { addDoc, collection } = await import('firebase/firestore');
@@ -1551,11 +1427,12 @@ const AdminDashboard = () => {
               createdAt: new Date()
             });
           } catch (logError) {
-            // 로그 기록 오류 무시
+            console.error('로그 기록 오류:', logError);
           }
         }
         
       } catch (authError) {
+        console.error('Firebase Auth 오류:', authError);
         
         // Firebase Auth 오류를 SweetAlert로 표시
         let errorMessage = '교사 계정 생성 중 오류가 발생했습니다.';
@@ -1581,6 +1458,7 @@ const AdminDashboard = () => {
         return;
       }
     } catch (error) {
+      console.error('교사 계정 생성 오류:', error);
       await Swal.fire({
         title: '오류',
         text: `교사 계정 생성 중 오류가 발생했습니다: ${error.message}`,
@@ -1648,7 +1526,7 @@ const AdminDashboard = () => {
         updatedAt: new Date()
       });
       
-      // 로그 기록 (super_admin은 기록하지 않음)
+      // 로그 기록 (super_admin 제외)
       if (currentUser.role !== 'super_admin') {
         try {
           await addDoc(collection(db, 'system_logs'), {
@@ -1664,7 +1542,7 @@ const AdminDashboard = () => {
             createdAt: new Date()
           });
         } catch (logError) {
-        // 로그 기록 오류 처리
+          // 로그 기록 오류 처리
         }
       }
       
@@ -1685,11 +1563,10 @@ const AdminDashboard = () => {
 
   const handleAddStudent = async () => {
     try {
-      // 필수 필드 검증: 이름, 클래스, 번호, 생년월일
-      if (!studentForm.name || !studentForm.selectedClassId || !studentForm.number || !studentForm.birthDate) {
+      if (!studentForm.selectedClassId) {
         await Swal.fire({
           title: '오류',
-          text: '이름, 클래스, 번호, 생년월일을 모두 입력해주세요.',
+          text: '클래스를 선택해주세요.',
           icon: 'error',
           customClass: {
             container: 'swal2-container-high-z'
@@ -1736,7 +1613,7 @@ const AdminDashboard = () => {
         updatedAt: new Date()
       });
       
-      // 로그 기록 (super_admin은 기록하지 않음)
+      // 로그 기록 (super_admin 제외)
       if (currentUser.role !== 'super_admin') {
         try {
           await addDoc(collection(db, 'system_logs'), {
@@ -1752,7 +1629,7 @@ const AdminDashboard = () => {
             createdAt: new Date()
           });
         } catch (logError) {
-        // 로그 기록 오류 처리
+          // 로그 기록 오류 처리
         }
       }
       
@@ -1811,6 +1688,9 @@ const AdminDashboard = () => {
         const startTime = Date.now();
         setLoading(true);
         
+        console.log('=== 전체 학생 삭제 시작 ===');
+        console.log('요청자:', currentUser.name || currentUser.email);
+        console.log('요청 시간:', new Date().toLocaleString());
         
         // 보안 로그 - 위험한 작업 시도
         await logSecurityAction(
@@ -1847,6 +1727,7 @@ const AdminDashboard = () => {
           return;
         }
 
+        console.log('삭제할 학생 수:', studentsSnapshot.size);
 
         // 배치 삭제 실행
         const batch = writeBatch(db);
@@ -1858,6 +1739,7 @@ const AdminDashboard = () => {
         });
         
         await batch.commit();
+        console.log('학생 계정 삭제 완료:', deleteCount, '명');
         
         // 상벌점 기록도 삭제
         const meritRecordsRef = collection(db, 'merit_demerit_records');
@@ -1871,6 +1753,7 @@ const AdminDashboard = () => {
             meritDeleteCount++;
           });
           await meritBatch.commit();
+          console.log('상벌점 기록 삭제 완료:', meritDeleteCount, '건');
         }
         
         const endTime = Date.now();
@@ -1910,6 +1793,10 @@ const AdminDashboard = () => {
           `모든 학생 데이터 삭제 완료 (${deleteCount}명)`
         );
 
+        console.log('=== 전체 학생 삭제 완료 ===');
+        console.log('소요 시간:', duration, 'ms');
+        console.log('삭제된 학생 수:', deleteCount);
+        console.log('삭제된 상벌점 기록 수:', meritDeleteCount);
         
         // 데이터 새로고침
         await fetchStudents();
@@ -2060,108 +1947,6 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleDeleteAllMeritRecords = async () => {
-    try {
-      const result = await Swal.fire({
-        title: '⚠️ 위험한 작업',
-        html: `
-          <div style="text-align: left;">
-            <p><strong>모든 상벌점 내역을 삭제하시겠습니까?</strong></p>
-            <p style="color: #d32f2f; font-weight: bold;">⚠️ 이 작업은 되돌릴 수 없습니다!</p>
-            <ul style="margin: 10px 0; padding-left: 20px;">
-              <li>모든 학생의 상벌점 기록이 삭제됩니다</li>
-              <li>상벌점 요청 내역이 삭제됩니다</li>
-              <li>관련된 모든 데이터가 영구적으로 삭제됩니다</li>
-            </ul>
-            <p>계속하려면 아래 입력란에 <strong>"DELETE ALL MERIT RECORDS"</strong>를 입력하세요.</p>
-            <input type="text" id="confirmText" class="swal2-input" placeholder="DELETE ALL MERIT RECORDS">
-          </div>
-        `,
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: '삭제 실행',
-        cancelButtonText: '취소',
-        confirmButtonColor: '#d32f2f',
-        cancelButtonColor: '#6c757d',
-        customClass: {
-          container: 'swal2-container-high-z'
-        },
-        preConfirm: () => {
-          const confirmText = document.getElementById('confirmText').value;
-          if (confirmText !== 'DELETE ALL MERIT RECORDS') {
-            Swal.showValidationMessage('정확한 텍스트를 입력해주세요.');
-            return false;
-          }
-          return true;
-        }
-      });
-
-      if (result.isConfirmed) {
-        setLoading(true);
-        
-        // 모든 상벌점 기록 조회
-        const meritRecordsRef = collection(db, 'merit_demerit_records');
-        const meritRecordsSnapshot = await getDocs(meritRecordsRef);
-        
-        if (meritRecordsSnapshot.empty) {
-          await Swal.fire({
-            title: '알림',
-            text: '삭제할 상벌점 내역이 없습니다.',
-            icon: 'info',
-            customClass: {
-              container: 'swal2-container-high-z'
-            }
-          });
-          setLoading(false);
-          return;
-        }
-
-        // 배치 삭제 실행
-        const batch = writeBatch(db);
-        let deleteCount = 0;
-        
-        meritRecordsSnapshot.forEach((recordDoc) => {
-          batch.delete(recordDoc.ref);
-          deleteCount++;
-        });
-        
-        await batch.commit();
-        
-        // 로그 기록
-        await logSystemAction(
-          '전체 상벌점 내역 삭제',
-          `모든 상벌점 내역 삭제 완료 (${deleteCount}건)`,
-          currentUser.uid
-        );
-        
-        // 데이터 새로고침
-        await fetchMeritRecords();
-        
-        await Swal.fire({
-          title: '삭제 완료',
-          text: `${deleteCount}건의 상벌점 내역이 삭제되었습니다.`,
-          icon: 'success',
-          customClass: {
-            container: 'swal2-container-high-z'
-          }
-        });
-        
-        setLoading(false);
-      }
-    } catch (error) {
-      setLoading(false);
-      setError('상벌점 내역 전체 삭제 중 오류가 발생했습니다: ' + error.message);
-      await Swal.fire({
-        title: '오류',
-        text: '상벌점 내역 전체 삭제 중 오류가 발생했습니다.',
-        icon: 'error',
-        customClass: {
-          container: 'swal2-container-high-z'
-        }
-      });
-    }
-  };
-
   // XLSX 다운로드 함수들
   const handleDownloadStudentsXLSX = async () => {
     const startTime = Date.now();
@@ -2176,6 +1961,9 @@ const AdminDashboard = () => {
         'XLSX 파일 생성'
       );
       
+      console.log('=== 학생 데이터 다운로드 시작 ===');
+      console.log('요청자:', currentUser.name || currentUser.email);
+      console.log('요청 시간:', new Date().toLocaleString());
       
       // 학생 데이터 조회
       const studentsRef = collection(db, 'accounts');
@@ -2187,6 +1975,7 @@ const AdminDashboard = () => {
         ...doc.data()
       }));
 
+      console.log('조회된 학생 수:', studentsData.length);
 
       // 상벌점 내역 조회
       const meritRecordsRef = collection(db, 'merit_demerit_records');
@@ -2198,6 +1987,7 @@ const AdminDashboard = () => {
         createdAt: doc.data().createdAt?.toDate?.() || new Date(doc.data().createdAt)
       }));
 
+      console.log('조회된 상벌점 기록 수:', meritRecordsData.length);
 
       // 학생 데이터 워크시트
       const studentsWorksheet = XLSX.utils.json_to_sheet(studentsData.map(student => ({
@@ -2262,6 +2052,9 @@ const AdminDashboard = () => {
         }
       );
 
+      console.log('=== 학생 데이터 다운로드 완료 ===');
+      console.log('소요 시간:', duration, 'ms');
+      console.log('다운로드된 파일:', `students_with_merit_${new Date().toISOString().split('T')[0]}.xlsx`);
 
       await Swal.fire({
         title: '다운로드 완료',
@@ -2275,6 +2068,7 @@ const AdminDashboard = () => {
       setLoading(false);
     } catch (error) {
       setLoading(false);
+      console.error('학생 XLSX 다운로드 오류:', error);
       
       // 오류 로그
       await logError(
@@ -2334,6 +2128,7 @@ const AdminDashboard = () => {
         }
       });
     } catch (error) {
+      console.error('교사 XLSX 다운로드 오류:', error);
       await Swal.fire({
         title: '오류',
         text: '교사 XLSX 다운로드 중 오류가 발생했습니다.',
@@ -2380,6 +2175,7 @@ const AdminDashboard = () => {
         }
       });
     } catch (error) {
+      console.error('클래스 XLSX 다운로드 오류:', error);
       await Swal.fire({
         title: '오류',
         text: '클래스 XLSX 다운로드 중 오류가 발생했습니다.',
@@ -2484,6 +2280,7 @@ const AdminDashboard = () => {
       setLoading(false);
     } catch (error) {
       setLoading(false);
+      console.error('전체 데이터 XLSX 다운로드 오류:', error);
       await Swal.fire({
         title: '오류',
         text: '전체 데이터 XLSX 다운로드 중 오류가 발생했습니다.',
@@ -2510,6 +2307,12 @@ const AdminDashboard = () => {
         `파일명: ${file.name}, 크기: ${file.size} bytes`
       );
 
+      console.log('=== XLSX 파일 업로드 시작 ===');
+      console.log('파일명:', file.name);
+      console.log('파일 크기:', file.size, 'bytes');
+      console.log('파일 타입:', file.type);
+      console.log('요청자:', currentUser.name || currentUser.email);
+      console.log('요청 시간:', new Date().toLocaleString());
 
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -2519,6 +2322,7 @@ const AdminDashboard = () => {
           
           // 모든 시트 확인
           const sheetNames = workbook.SheetNames;
+          console.log('업로드된 시트들:', sheetNames);
           
           // 학생 데이터 시트 찾기
           const studentsSheetName = sheetNames.find(name => 
@@ -2537,6 +2341,7 @@ const AdminDashboard = () => {
           if (meritSheetName) {
             const meritWorksheet = workbook.Sheets[meritSheetName];
             meritRecordsData = XLSX.utils.sheet_to_json(meritWorksheet);
+            console.log('상벌점 내역 데이터:', meritRecordsData.length, '건');
           }
           
           if (studentsData.length === 0) {
@@ -2611,6 +2416,7 @@ const AdminDashboard = () => {
           }
 
           // 1. 기존 데이터 삭제
+          console.log('기존 데이터 삭제 시작...');
           
           // 모든 학생 계정 삭제
           const studentsSnapshot = await getDocs(query(collection(db, 'accounts'), where('role', '==', 'student')));
@@ -2636,6 +2442,7 @@ const AdminDashboard = () => {
           });
           await classesBatch.commit();
           
+          console.log('기존 데이터 삭제 완료');
 
           // 2. 새 데이터 업로드
           let processedCount = 0;
@@ -2778,6 +2585,7 @@ const AdminDashboard = () => {
               
               successCount++;
             } catch (error) {
+              console.error('학생 데이터 처리 오류:', error);
               errors.push(`행 ${i + 2}: ${student['이름'] || '이름 없음'} - ${error.message}`);
               errorCount++;
             }
@@ -2785,6 +2593,7 @@ const AdminDashboard = () => {
           
           // 상벌점 내역 처리
           if (meritRecordsData.length > 0) {
+            console.log('상벌점 내역 처리 시작...');
             
             for (let i = 0; i < meritRecordsData.length; i++) {
               const record = meritRecordsData[i];
@@ -2835,6 +2644,7 @@ const AdminDashboard = () => {
                 
                 successCount++;
               } catch (error) {
+                console.error('상벌점 기록 처리 오류:', error);
                 errors.push(`상벌점 기록 ${i + 1}: ${error.message}`);
                 errorCount++;
               }
@@ -2853,6 +2663,7 @@ const AdminDashboard = () => {
           await fetchTeachers();
           await fetchClasses();
           await fetchResetRequests();
+          await fetchInquiries();
           
           const endTime = Date.now();
           const duration = endTime - startTime;
@@ -2896,6 +2707,11 @@ const AdminDashboard = () => {
             `${successCount}명의 학생이 일괄 생성되었습니다. (오류: ${errorCount}건)`
           );
 
+          console.log('=== XLSX 업로드 완료 ===');
+          console.log('소요 시간:', duration, 'ms');
+          console.log('처리된 학생 수:', successCount);
+          console.log('처리된 상벌점 기록 수:', meritRecordsData.length);
+          console.log('오류 수:', errorCount);
           
           let message = `${successCount}명의 학생이 추가되었습니다.`;
           if (errorCount > 0) {
@@ -2943,6 +2759,7 @@ const AdminDashboard = () => {
             });
           }
         } catch (error) {
+          console.error('XLSX 파일 처리 오류:', error);
           await Swal.fire({
             title: 'XLSX 파일 처리 오류',
             html: `
@@ -2968,6 +2785,7 @@ const AdminDashboard = () => {
       
       reader.readAsArrayBuffer(file);
     } catch (error) {
+      console.error('XLSX 업로드 오류:', error);
       await Swal.fire({
         title: 'XLSX 파일 업로드 오류',
         html: `
@@ -3030,7 +2848,7 @@ const AdminDashboard = () => {
     } else if (type === 'student') {
       // 학생의 현재 클래스 찾기
       const currentClass = classes.find(cls => 
-        cls.grade === item.grade && cls.class === item.class
+        cls.grade === item.grade && cls.classNumber === item.class
       );
       
       setStudentForm({
@@ -3107,6 +2925,7 @@ const AdminDashboard = () => {
           
           // 교사 삭제 시 계정 비활성화 처리
           try {
+            console.log('교사 계정 비활성화 처리:', item.email);
             
             // Firestore에서 사용자 정보를 비활성화 상태로 업데이트
             const userRef = doc(db, 'accounts', item.id);
@@ -3117,7 +2936,9 @@ const AdminDashboard = () => {
               deletedByEmail: currentUser.email
             });
             
+            console.log('교사 계정이 비활성화되었습니다:', item.email);
           } catch (updateError) {
+            console.error('계정 비활성화 오류:', updateError);
             // 비활성화 실패 시에도 Firestore 삭제는 계속 진행
           }
         } else if (type === 'student') {
@@ -3296,6 +3117,7 @@ const AdminDashboard = () => {
 
         return;
       } catch (error) {
+        console.error('초기화 요청 리셋 오류:', error);
       }
     }
 
@@ -3378,10 +3200,12 @@ const AdminDashboard = () => {
   // 학생 클릭 핸들러 (상벌점 이력 조회)
   const handleStudentClick = async (student) => {
     try {
+      console.log('학생 클릭:', student);
       setSelectedStudentForHistory(student);
       await fetchStudentMeritHistory(student.id);
       setShowStudentMeritHistoryDialog(true);
     } catch (error) {
+      console.error('학생 상벌점 이력 조회 오류:', error);
       setError('학생 상벌점 이력을 불러오는 중 오류가 발생했습니다: ' + error.message);
     }
   };
@@ -3567,6 +3391,7 @@ const AdminDashboard = () => {
         alert(`데이터 덮어쓰기가 완료되었습니다.\n클래스: ${classData.length}개, 학생: ${studentData.length}명`);
         
       } catch (error) {
+        console.error('CSV 덮어쓰기 오류:', error);
         alert('CSV 덮어쓰기 중 오류가 발생했습니다: ' + error.message);
       }
     };
@@ -3587,8 +3412,8 @@ const AdminDashboard = () => {
     { text: '클래스 관리', icon: <ClassIcon />, value: 0 },
     { text: '교사 관리', icon: <PersonIcon />, value: 1 },
     { text: '학생 관리', icon: <GroupIcon />, value: 2 },
-    { text: '상벌점 관리', icon: <AssessmentIcon />, value: 3 },
-    { text: '시스템 로그', icon: <DashboardIcon />, value: 4 },
+    { text: '시스템 로그', icon: <DashboardIcon />, value: 3 },
+    { text: '문의 관리', icon: <WarningIcon />, value: 4 },
     { text: '최고 관리자 전용 기능', icon: <AdminIcon />, value: 5 }
   ];
 
@@ -3620,7 +3445,7 @@ const AdminDashboard = () => {
 
   // 모든 해상도에서 PC UI 유지 (사이드바 레이아웃)
     return (
-      <Box sx={{ display: 'flex', minHeight: '100vh', maxWidth: '100vw', overflowX: 'hidden', backgroundColor: '#F5F7FA' }}>
+      <Box sx={{ display: 'flex', minHeight: '100vh', maxWidth: '100vw', overflowX: 'hidden' }}>
         {/* 모바일에서 사이드바 토글 버튼 */}
         {isMobileOrSmaller && (
           <IconButton
@@ -3706,13 +3531,7 @@ const AdminDashboard = () => {
             {sidebarItems.map((item) => (
               <ListItem key={item.text} disablePadding>
                 <ListItemButton
-                  onClick={() => {
-                    setTabValue(item.value);
-                    // 모바일에서 탭 클릭 시 사이드바 자동 닫기
-                    if (isMobileOrSmaller) {
-                      setSidebarOpen(false);
-                    }
-                  }}
+                  onClick={() => setTabValue(item.value)}
                   selected={tabValue === item.value}
                   sx={{
                     '&.Mui-selected': {
@@ -3764,36 +3583,18 @@ const AdminDashboard = () => {
 
         </Drawer>
 
-        {/* 메인 콘텐츠 - 사이드바 제외한 전체 영역 */}
-        <Box sx={{
+        {/* 메인 콘텐츠 */}
+        <Box sx={{ 
           flexGrow: 1, 
-          overflowY: 'auto',
-          overflowX: 'auto',
+          overflow: 'auto', 
+          p: isMobileOrSmaller ? 1 : 3, 
           display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'stretch',
-          width: isMobileOrSmaller ? '100%' : 'calc(100vw - 280px)',
-          minWidth: isMobileOrSmaller ? '320px' : '600px',
-          maxWidth: isMobileOrSmaller ? '100vw' : '1600px',
-          ml: isMobileOrSmaller && !sidebarOpen ? 0 : isMobileOrSmaller ? 0 : '280px',
-          mx: 'auto',
-          p: isMobileOrSmaller ? 1 : 2,
-          // 가로 스크롤 스타일링
-          '&::-webkit-scrollbar': {
-            height: '8px',
-            width: '8px',
-          },
-          '&::-webkit-scrollbar-track': {
-            background: '#f1f1f1',
-            borderRadius: '4px',
-          },
-          '&::-webkit-scrollbar-thumb': {
-            background: '#888',
-            borderRadius: '4px',
-            '&:hover': {
-              background: '#555',
-            },
-          },
+          maxWidth: isMobileOrSmaller ? '100vw' : 'calc(100vw - 240px)',
+          overflowX: 'hidden',
+          flexDirection: 'column', 
+          alignItems: 'center',
+          ml: isMobileOrSmaller && !sidebarOpen ? 0 : isMobileOrSmaller ? 0 : '240px',
+          width: isMobileOrSmaller ? '100%' : 'auto'
         }}>
           {/* 헤더 */}
           <Box sx={{ 
@@ -3802,10 +3603,8 @@ const AdminDashboard = () => {
             alignItems: 'center', 
             mb: 2, 
             width: '100%',
-            minWidth: isMobileOrSmaller ? '320px' : '600px',
-            mt: isMobileOrSmaller ? 6 : 0,
-            flexWrap: 'wrap',
-            gap: 1,
+            maxWidth: '100%',
+            mt: isMobileOrSmaller ? 6 : 0
           }}>
             <Typography variant={isMobileOrSmaller ? "h6" : "h5"} component="h1" sx={{ fontWeight: 'bold' }}>
               {currentUser.name} 관리자님
@@ -3814,11 +3613,7 @@ const AdminDashboard = () => {
           </Box>
 
           {/* 통계 카드 */}
-          <Grid container spacing={isMobileOrSmaller ? 1 : 3} sx={{ 
-            mb: 2, 
-            width: '100%',
-            minWidth: isMobileOrSmaller ? '320px' : '600px',
-          }}>
+          <Grid container spacing={isMobileOrSmaller ? 1 : 3} sx={{ mb: 2, width: '100%', maxWidth: '100%' }}>
             <Grid xs={12} sm={4}>
               <Card>
                 <CardContent sx={{ textAlign: 'center', p: isMobileOrSmaller ? 1.5 : 2 }}>
@@ -3850,11 +3645,7 @@ const AdminDashboard = () => {
 
           {/* 탭 콘텐츠 */}
           {tabValue === 0 && (
-            <Box sx={{ 
-              width: '100%',
-              minWidth: isMobileOrSmaller ? '320px' : '600px',
-              overflowX: 'auto',
-            }}>
+            <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%', mt: 1 }}>
               <Box sx={{ 
                 display: 'flex', 
                 flexDirection: isMobileOrSmaller ? 'column' : 'row',
@@ -3868,12 +3659,7 @@ const AdminDashboard = () => {
                   variant="outlined"
                   size="small"
                   value={classSearchTerm}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    requestAnimationFrame(() => {
-                      setClassSearchTerm(value);
-                    });
-                  }}
+                  onChange={(e) => setClassSearchTerm(e.target.value)}
                   placeholder="클래스명, 학년, 반으로 검색"
                   sx={{ minWidth: isMobileOrSmaller ? '100%' : 300 }}
                 />
@@ -3890,20 +3676,11 @@ const AdminDashboard = () => {
               
               <div className="table-scroll-container">
                 <TableContainer component={Paper}>
-                  <Table sx={{ 
-                    tableLayout: isTablet ? 'fixed' : 'auto',
-                    width: isTablet ? '100%' : 'auto'
-                  }}>
+                  <Table>
                     <TableHead>
                       <TableRow>
                         <TableCell 
-                          sx={{ 
-                            cursor: 'pointer', 
-                            userSelect: 'none', 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '30%' : 'auto',
-                            minWidth: isTablet ? '120px' : 'auto'
-                          }}
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}
                           onClick={() => handleClassSort('name')}
                         >
                           클래스명 {classSortConfig.key === 'name' && (classSortConfig.direction === 'asc' ? '↑' : '↓')}
@@ -3916,37 +3693,19 @@ const AdminDashboard = () => {
                         </TableCell>
                         <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>교과목교사</TableCell>
                         <TableCell 
-                          sx={{ 
-                            cursor: 'pointer', 
-                            userSelect: 'none', 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '20%' : 'auto',
-                            minWidth: isTablet ? '80px' : 'auto'
-                          }}
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}
                           onClick={() => handleClassSort('students')}
                         >
                           학생 수 {classSortConfig.key === 'students' && (classSortConfig.direction === 'asc' ? '↑' : '↓')}
                         </TableCell>
-                        <TableCell sx={{ 
-                          fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                          width: isTablet ? '25%' : 'auto',
-                          minWidth: isTablet ? '100px' : 'auto'
-                        }}>상벌점 누계</TableCell>
-                        <TableCell sx={{ 
-                          fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                          width: isTablet ? '25%' : 'auto',
-                          minWidth: isTablet ? '100px' : 'auto'
-                        }}>작업</TableCell>
+                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>상벌점 누계</TableCell>
+                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>작업</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {sortedFilteredClasses.map((cls) => (
                         <TableRow key={cls.id}>
-                          <TableCell sx={{ 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '30%' : 'auto',
-                            minWidth: isTablet ? '120px' : 'auto'
-                          }}>
+                          <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
                             <Button
                               variant="text"
                               onClick={() => handleClassDetails(cls)}
@@ -3964,32 +3723,20 @@ const AdminDashboard = () => {
                           </TableCell>
                           <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>{getHomeroomTeacherDisplay(cls.homeroomTeacher)}</TableCell>
                           <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>{cls.subjectTeachers?.length || 0}명</TableCell>
-                          <TableCell sx={{ 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '20%' : 'auto',
-                            minWidth: isTablet ? '80px' : 'auto'
-                          }}>
+                          <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
                             {(() => {
                               const classStudents = students.filter(s => s.grade === cls.grade && s.class === cls.class);
                               return `${classStudents.length}명`;
                             })()}
                           </TableCell>
-                          <TableCell sx={{ 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '25%' : 'auto',
-                            minWidth: isTablet ? '100px' : 'auto'
-                          }}>
+                          <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
                             <Chip
                               label={`${getClassMeritSum(cls)}점`}
                               color={getClassMeritSum(cls) >= 0 ? 'success' : 'error'}
                               size="small"
                             />
                           </TableCell>
-                          <TableCell sx={{ 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '25%' : 'auto',
-                            minWidth: isTablet ? '100px' : 'auto'
-                          }}>
+                          <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
                             <IconButton 
                               size="small" 
                               color="primary"
@@ -4015,11 +3762,7 @@ const AdminDashboard = () => {
           )}
 
           {tabValue === 1 && (
-            <Box sx={{ 
-              width: '100%',
-              minWidth: isMobileOrSmaller ? '320px' : '600px',
-              overflowX: 'auto',
-            }}>
+            <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%', mt: 1 }}>
               <Box sx={{ 
                 display: 'flex', 
                 flexDirection: isMobileOrSmaller ? 'column' : 'row',
@@ -4033,12 +3776,7 @@ const AdminDashboard = () => {
                   variant="outlined"
                   size="small"
                   value={teacherSearchTerm}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    requestAnimationFrame(() => {
-                      setTeacherSearchTerm(value);
-                    });
-                  }}
+                  onChange={(e) => setTeacherSearchTerm(e.target.value)}
                   placeholder="이름, 이메일, 역할로 검색"
                   sx={{ minWidth: isMobileOrSmaller ? '100%' : 300 }}
                 />
@@ -4131,6 +3869,7 @@ const AdminDashboard = () => {
                                   size="small" 
                                   color="warning"
                                   onClick={async () => {
+                                    console.log('비밀번호 초기화 버튼 클릭됨:', teacher.email);
                                     
                                     const { value: confirmReset } = await Swal.fire({
                                       title: '비밀번호 초기화',
@@ -4175,11 +3914,7 @@ const AdminDashboard = () => {
           )}
 
           {tabValue === 2 && (
-            <Box sx={{ 
-              width: '100%',
-              minWidth: isMobileOrSmaller ? '320px' : '600px',
-              overflowX: 'auto',
-            }}>
+            <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%', mt: 1 }}>
               <Box sx={{ 
                 display: 'flex', 
                 flexDirection: isMobileOrSmaller ? 'column' : 'row',
@@ -4194,12 +3929,7 @@ const AdminDashboard = () => {
                     variant="outlined"
                     size="small"
                     value={studentSearchTerm}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      requestAnimationFrame(() => {
-                        setStudentSearchTerm(value);
-                      });
-                    }}
+                    onChange={(e) => setStudentSearchTerm(e.target.value)}
                     placeholder="이름, 학번, 클래스로 검색"
                     sx={{ minWidth: isMobileOrSmaller ? '100%' : 300 }}
                   />
@@ -4247,10 +3977,7 @@ const AdminDashboard = () => {
               
               <div className="table-scroll-container">
                 <TableContainer component={Paper}>
-                  <Table sx={{ 
-                    tableLayout: isTablet ? 'fixed' : 'auto',
-                    width: isTablet ? '100%' : 'auto'
-                  }}>
+                  <Table>
                     <TableHead>
                       <TableRow>
                         <TableCell 
@@ -4260,25 +3987,13 @@ const AdminDashboard = () => {
                           학번 {studentSortConfig.key === 'studentId' && (studentSortConfig.direction === 'asc' ? '↑' : '↓')}
                         </TableCell>
                         <TableCell 
-                          sx={{ 
-                            cursor: 'pointer', 
-                            userSelect: 'none', 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '25%' : 'auto',
-                            minWidth: isTablet ? '100px' : 'auto'
-                          }}
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}
                           onClick={() => handleStudentSort('name')}
                         >
                           이름 {studentSortConfig.key === 'name' && (studentSortConfig.direction === 'asc' ? '↑' : '↓')}
                         </TableCell>
                         <TableCell 
-                          sx={{ 
-                            cursor: 'pointer', 
-                            userSelect: 'none', 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '30%' : 'auto',
-                            minWidth: isTablet ? '120px' : 'auto'
-                          }}
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}
                           onClick={() => handleStudentSort('grade')}
                         >
                           학년/반/번호 {studentSortConfig.key === 'grade' && (studentSortConfig.direction === 'asc' ? '↑' : '↓')}
@@ -4290,22 +4005,12 @@ const AdminDashboard = () => {
                           생년월일 {studentSortConfig.key === 'birthDate' && (studentSortConfig.direction === 'asc' ? '↑' : '↓')}
                         </TableCell>
                         <TableCell 
-                          sx={{ 
-                            cursor: 'pointer', 
-                            userSelect: 'none', 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '25%' : 'auto',
-                            minWidth: isTablet ? '100px' : 'auto'
-                          }}
+                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}
                           onClick={() => handleStudentSort('cumulativeScore')}
                         >
                           누계 점수 {studentSortConfig.key === 'cumulativeScore' && (studentSortConfig.direction === 'asc' ? '↑' : '↓')}
                         </TableCell>
-                        <TableCell sx={{ 
-                          fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                          width: isTablet ? '20%' : 'auto',
-                          minWidth: isTablet ? '80px' : 'auto'
-                        }}>작업</TableCell>
+                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>작업</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -4328,11 +4033,7 @@ const AdminDashboard = () => {
                               {student.studentId}
                             </Button>
                           </TableCell>
-                          <TableCell sx={{ 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '25%' : 'auto',
-                            minWidth: isTablet ? '100px' : 'auto'
-                          }}>
+                          <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
                             <Button
                               variant="text"
                               onClick={() => handleStudentClick(student)}
@@ -4349,17 +4050,9 @@ const AdminDashboard = () => {
                               {student.name}
                             </Button>
                           </TableCell>
-                          <TableCell sx={{ 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '30%' : 'auto',
-                            minWidth: isTablet ? '120px' : 'auto'
-                          }}>{student.grade}학년 {student.class}반 {student.number}번</TableCell>
+                          <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>{student.grade}학년 {student.class}반 {student.number}번</TableCell>
                           <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>{student.birthDate}</TableCell>
-                          <TableCell sx={{ 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '25%' : 'auto',
-                            minWidth: isTablet ? '100px' : 'auto'
-                          }}>
+                          <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
                             <Chip
                               label={student.cumulativeScore || 0}
                               color={student.cumulativeScore > 0 ? 'success' : student.cumulativeScore < 0 ? 'error' : 'default'}
@@ -4370,11 +4063,7 @@ const AdminDashboard = () => {
                               }}
                             />
                           </TableCell>
-                          <TableCell sx={{ 
-                            fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                            width: isTablet ? '20%' : 'auto',
-                            minWidth: isTablet ? '80px' : 'auto'
-                          }}>
+                          <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
                             <IconButton 
                               size="small" 
                               color="primary"
@@ -4401,140 +4090,145 @@ const AdminDashboard = () => {
 
           {tabValue === 3 && (
             <Box sx={{ 
-              width: '100%',
-              minWidth: isMobileOrSmaller ? '320px' : '600px',
-              overflowX: 'auto',
+              width: '100%', 
+              maxWidth: '100%',
+              minWidth: '100%'
             }}>
-              <Box sx={{ mb: 3 }}>
-                <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold' }}>
-                  상벌점 관리
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  모든 상벌점 내역을 조회하고 관리할 수 있습니다.
-                </Typography>
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: isMobileOrSmaller ? 'column' : 'row',
+                justifyContent: 'space-between', 
+                alignItems: isMobileOrSmaller ? 'stretch' : 'center', 
+                mb: 2,
+                width: '100%',
+                gap: isMobileOrSmaller ? 1 : 0
+              }}>
+                <TextField
+                  label="로그 검색"
+                  variant="outlined"
+                  size="small"
+                  placeholder="사용자, 작업, 내용으로 검색"
+                  sx={{ minWidth: isMobileOrSmaller ? '100%' : 300, maxWidth: isMobileOrSmaller ? '100%' : '60%' }}
+                />
+                <Box sx={{ display: 'flex', flexDirection: isMobileOrSmaller ? 'row' : 'row', gap: 1 }}>
+                  <Button
+                    variant="outlined"
+                    size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
+                    fullWidth={isMobileOrSmaller}
+                  >
+                    전체
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
+                    fullWidth={isMobileOrSmaller}
+                  >
+                    오늘
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
+                    fullWidth={isMobileOrSmaller}
+                  >
+                    이번 주
+                  </Button>
+                </Box>
               </Box>
+              <LogViewer />
+            </Box>
+          )}
 
+          {tabValue === 4 && (
+            <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%' }}>
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: isMobileOrSmaller ? 'column' : 'row',
+                justifyContent: 'space-between', 
+                alignItems: isMobileOrSmaller ? 'stretch' : 'center', 
+                mb: 2,
+                gap: isMobileOrSmaller ? 1 : 0
+              }}>
+                <TextField
+                  label="문의 검색"
+                  variant="outlined"
+                  size="small"
+                  placeholder="제목, 작성자, 카테고리로 검색"
+                  sx={{ minWidth: isMobileOrSmaller ? '100%' : 300 }}
+                />
+                <Box sx={{ display: 'flex', flexDirection: isMobileOrSmaller ? 'row' : 'row', gap: 1 }}>
+                  <Button
+                    variant="outlined"
+                    size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
+                    fullWidth={isMobileOrSmaller}
+                  >
+                    전체
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
+                    fullWidth={isMobileOrSmaller}
+                  >
+                    답변 대기
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
+                    fullWidth={isMobileOrSmaller}
+                  >
+                    답변 완료
+                  </Button>
+                </Box>
+              </Box>
               <div className="table-scroll-container">
                 <TableContainer component={Paper}>
                   <Table>
                     <TableHead>
                       <TableRow>
-                        <TableCell 
-                          sx={{ cursor: 'pointer', userSelect: 'none', fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}
-                          onClick={() => handleMeritSort('createdAt')}
-                        >
-                          처리일시 {meritSortConfig.key === 'createdAt' && (meritSortConfig.direction === 'asc' ? '↑' : '↓')}
-                        </TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>학생</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>학번</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>구분</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>점수</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>사유</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>요청자</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>처리자</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>담임여부</TableCell>
+                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>작성일시</TableCell>
+                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>작성자</TableCell>
+                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>카테고리</TableCell>
+                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>제목</TableCell>
+                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>상태</TableCell>
+                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>작업</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {sortedMeritRecords.length === 0 ? (
+                      {inquiries.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={9} align="center">
-                            등록된 상벌점 내역이 없습니다.
+                          <TableCell colSpan={6} align="center" sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
+                            문의 내역이 없습니다.
                           </TableCell>
                         </TableRow>
                       ) : (
-                        sortedMeritRecords.map((record) => {
-                          // studentId와 student_id 두 필드 모두 확인 (기존 fetchStudentMeritHistory 로직 활용)
-                          const student = students.find(s => 
-                            s.id === record.studentId || 
-                            s.studentId === record.studentId ||
-                            s.id === record.student_id ||
-                            s.studentId === record.student_id
-                          );
-                          const studentName = student?.name || record.studentName || record.student_name || '알 수 없음';
-                          const studentId = student?.studentId || record.studentId || record.student_id || '알 수 없음';
-                          const isHomeroom = record.creatorRole === 'homeroom_teacher' || record.creatorRole === 'homeroomTeacher';
-                          
-                          // 처리 교사 정보 (기존 로직 활용)
-                          const requesterName = record.requesterName || record.requestingTeacherName || record.requester_name || record.creatorName || '알 수 없음';
-                          const processorName = record.processedTeacherName || record.processedByName || record.processorName || record.creatorName || '알 수 없음';
-                          
-                          return (
-                            <TableRow key={record.id} hover>
-                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
-                                {record.createdAt ? new Date(record.createdAt).toLocaleString('ko-KR') : '-'}
-                              </TableCell>
-                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
-                                <Button
-                                  variant="text"
-                                  onClick={() => {
-                                    setSelectedMeritRecord(record);
-                                    setShowMeritDetailDialog(true);
-                                  }}
-                                  sx={{ 
-                                    textTransform: 'none', 
-                                    fontWeight: 'bold',
-                                    color: 'primary.main',
-                                    '&:hover': { textDecoration: 'underline' },
-                                    fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                                    p: isMobileOrSmaller ? 0.5 : 1
-                                  }}
-                                >
-                                  {studentName}
-                                </Button>
-                              </TableCell>
-                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>
-                                <Button
-                                  variant="text"
-                                  onClick={() => {
-                                    setSelectedMeritRecord(record);
-                                    setShowMeritDetailDialog(true);
-                                  }}
-                                  sx={{ 
-                                    textTransform: 'none', 
-                                    fontWeight: 'bold',
-                                    color: 'primary.main',
-                                    '&:hover': { textDecoration: 'underline' },
-                                    fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem',
-                                    p: isMobileOrSmaller ? 0.5 : 1
-                                  }}
-                                >
-                                  {studentId}
-                                </Button>
-                              </TableCell>
-                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
-                                <Chip
-                                  label={record.type === 'merit' ? '상점' : '벌점'}
-                                  color={record.type === 'merit' ? 'success' : 'error'}
-                                  size="small"
-                                />
-                              </TableCell>
-                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
-                                <Chip
-                                  label={`${record.points > 0 ? '+' : ''}${record.points}점`}
-                                  color={record.points > 0 ? 'success' : 'error'}
-                                  size="small"
-                                />
-                              </TableCell>
-                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>
-                                {record.reason || record.meritReason || '-'}
-                              </TableCell>
-                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>
-                                {requesterName}
-                              </TableCell>
-                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>
-                                {processorName}
-                              </TableCell>
-                              <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>
-                                <Chip
-                                  label={isHomeroom ? '담임' : '교과목'}
-                                  color={isHomeroom ? 'primary' : 'default'}
-                                  size="small"
-                                />
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })
+                        inquiries.map((inquiry) => (
+                          <TableRow key={inquiry.id}>
+                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>{formatDate(inquiry.createdAt)}</TableCell>
+                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>{inquiry.authorName}</TableCell>
+                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>
+                              <Chip label={inquiry.category} size="small" />
+                            </TableCell>
+                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>{inquiry.title}</TableCell>
+                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
+                              <Chip
+                                label={inquiry.status === 'pending' ? '답변 대기' : '답변 완료'}
+                                color={inquiry.status === 'pending' ? 'warning' : 'success'}
+                                size="small"
+                              />
+                            </TableCell>
+                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => {
+                                  setSelectedInquiry(inquiry);
+                                  setShowInquiryDetailDialog(true);
+                                }}
+                              >
+                                상세보기
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))
                       )}
                     </TableBody>
                   </Table>
@@ -4543,22 +4237,8 @@ const AdminDashboard = () => {
             </Box>
           )}
 
-          {tabValue === 4 && (
-            <Box sx={{ 
-              width: '100%',
-              minWidth: isMobileOrSmaller ? '320px' : '600px',
-              overflowX: 'auto',
-            }}>
-              <LogViewer />
-            </Box>
-          )}
-
           {tabValue === 5 && (
-            <Box sx={{ 
-              width: '100%',
-              minWidth: isMobileOrSmaller ? '320px' : '600px',
-              overflowX: 'auto',
-            }}>
+            <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%' }}>
               <Box sx={{ 
                 display: 'flex', 
                 flexDirection: isMobileOrSmaller ? 'column' : 'row',
@@ -4570,6 +4250,24 @@ const AdminDashboard = () => {
                 <Typography variant={isMobileOrSmaller ? "h6" : "h5"} sx={{ color: '#d32f2f', fontWeight: 'bold' }}>
                   ⚠️ 최고 관리자 전용 기능
                 </Typography>
+                <Box sx={{ display: 'flex', flexDirection: isMobileOrSmaller ? 'row' : 'row', gap: 1 }}>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
+                    fullWidth={isMobileOrSmaller}
+                  >
+                    데이터 관리
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
+                    fullWidth={isMobileOrSmaller}
+                  >
+                    초기화 관리
+                  </Button>
+                </Box>
               </Box>
               
               <Alert severity="warning" sx={{ mb: 3 }}>
@@ -4582,29 +4280,9 @@ const AdminDashboard = () => {
                 </Typography>
               </Alert>
 
-              <Box sx={{ 
-                overflowX: 'auto',
-                overflowY: 'visible',
-                width: '100%',
-                mb: 4,
-                '&::-webkit-scrollbar': {
-                  height: '8px',
-                },
-                '&::-webkit-scrollbar-track': {
-                  backgroundColor: '#f1f1f1',
-                  borderRadius: '4px',
-                },
-                '&::-webkit-scrollbar-thumb': {
-                  backgroundColor: '#888',
-                  borderRadius: '4px',
-                  '&:hover': {
-                    backgroundColor: '#555',
-                  },
-                },
-              }}>
-                <Grid container spacing={isMobileOrSmaller ? 2 : 3} sx={{ minWidth: isMobileOrSmaller ? '900px' : 'auto', display: 'flex', flexWrap: 'nowrap' }}>
+              <Grid container spacing={isMobileOrSmaller ? 2 : 3}>
                 {/* 학생 전체 삭제 */}
-                <Grid item sx={{ minWidth: isMobileOrSmaller ? '280px' : 'auto', flex: '0 0 auto' }}>
+                <Grid item xs={12} md={6}>
                   <Card sx={{ height: '100%', border: '2px solid #d32f2f' }}>
                     <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -4654,7 +4332,7 @@ const AdminDashboard = () => {
                 </Grid>
 
                 {/* 교사 전체 삭제 */}
-                <Grid item sx={{ minWidth: isMobileOrSmaller ? '280px' : 'auto', flex: '0 0 auto' }}>
+                <Grid item xs={12} md={6}>
                   <Card sx={{ height: '100%', border: '2px solid #d32f2f' }}>
                     <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -4702,86 +4380,15 @@ const AdminDashboard = () => {
                     </CardContent>
                   </Card>
                 </Grid>
-
-                {/* 상벌점 내역 전체 삭제 */}
-                <Grid item sx={{ minWidth: isMobileOrSmaller ? '280px' : 'auto', flex: '0 0 auto' }}>
-                  <Card sx={{ height: '100%', border: '2px solid #d32f2f' }}>
-                    <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                        <DeleteForeverIcon sx={{ color: '#d32f2f', mr: 1, fontSize: isMobileOrSmaller ? 24 : 28 }} />
-                        <Typography variant={isMobileOrSmaller ? "body1" : "h6"} sx={{ color: '#d32f2f', fontWeight: 'bold' }}>
-                          상벌점 내역 삭제
-                        </Typography>
-                      </Box>
-                      
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        모든 상벌점 기록과 관련 데이터를 영구적으로 삭제합니다.
-                      </Typography>
-                      
-                      <Box sx={{ mb: 2 }}>
-                        <Typography variant="subtitle2" gutterBottom>
-                          삭제되는 데이터:
-                        </Typography>
-                        <ul style={{ margin: 0, paddingLeft: 20 }}>
-                          <li>모든 학생의 상벌점 기록</li>
-                          <li>상벌점 요청 내역</li>
-                          <li>상벌점 관련 모든 데이터</li>
-                        </ul>
-                      </Box>
-                      
-                      <Typography variant="body2" color="error" sx={{ mb: 2, fontWeight: 'bold' }}>
-                        현재 상벌점 기록 수: {meritRecords.length}건
-                      </Typography>
-                      
-                      <Button
-                        variant="contained"
-                        color="error"
-                        fullWidth
-                        startIcon={<DeleteForeverIcon />}
-                        onClick={handleDeleteAllMeritRecords}
-                        sx={{ 
-                          fontWeight: 'bold',
-                          '&:hover': {
-                            backgroundColor: '#b71c1c'
-                          }
-                        }}
-                        size={isMobileOrSmaller ? "small" : "medium"}
-                      >
-                        모든 상벌점 내역 삭제
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                </Grid>
-              </Box>
+            </Grid>
 
             {/* 상벌점 사유 관리 */}
             <Typography variant={isMobileOrSmaller ? "body1" : "h6"} gutterBottom sx={{ mt: 4, mb: 2, color: '#1976d2' }}>
               📝 상벌점 사유 관리
             </Typography>
             
-            <Box sx={{ 
-              overflowX: 'auto',
-              overflowY: 'visible',
-              width: '100%',
-              mb: 4,
-              '&::-webkit-scrollbar': {
-                height: '8px',
-              },
-              '&::-webkit-scrollbar-track': {
-                backgroundColor: '#f1f1f1',
-                borderRadius: '4px',
-              },
-              '&::-webkit-scrollbar-thumb': {
-                backgroundColor: '#888',
-                borderRadius: '4px',
-                '&:hover': {
-                  backgroundColor: '#555',
-                },
-              },
-            }}>
-              <Grid container spacing={isMobileOrSmaller ? 2 : 3} sx={{ minWidth: isMobileOrSmaller ? '600px' : 'auto', display: 'flex', flexWrap: 'nowrap' }}>
-              <Grid item sx={{ minWidth: isMobileOrSmaller ? '280px' : 'auto', flex: '0 0 auto' }}>
+            <Grid container spacing={isMobileOrSmaller ? 2 : 3} sx={{ mb: 4 }}>
+              <Grid item xs={12} md={6}>
                 <Card sx={{ height: '100%', border: '1px solid #1976d2' }}>
                   <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -4818,7 +4425,7 @@ const AdminDashboard = () => {
                 </Card>
               </Grid>
               
-              <Grid item sx={{ minWidth: isMobileOrSmaller ? '280px' : 'auto', flex: '0 0 auto' }}>
+              <Grid item xs={12} md={6}>
                 <Card sx={{ height: '100%', border: '1px solid #d32f2f' }}>
                   <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -4854,37 +4461,16 @@ const AdminDashboard = () => {
                   </CardContent>
                 </Card>
               </Grid>
-              </Grid>
-            </Box>
+            </Grid>
 
             {/* CSV 데이터 관리 */}
             <Typography variant={isMobileOrSmaller ? "body1" : "h6"} gutterBottom sx={{ mt: 4, mb: 2, color: '#1976d2' }}>
               📊 CSV 데이터 관리
             </Typography>
             
-            <Box sx={{ 
-              overflowX: 'auto',
-              overflowY: 'visible',
-              width: '100%',
-              mb: 4,
-              '&::-webkit-scrollbar': {
-                height: '8px',
-              },
-              '&::-webkit-scrollbar-track': {
-                backgroundColor: '#f1f1f1',
-                borderRadius: '4px',
-              },
-              '&::-webkit-scrollbar-thumb': {
-                backgroundColor: '#888',
-                borderRadius: '4px',
-                '&:hover': {
-                  backgroundColor: '#555',
-                },
-              },
-            }}>
-              <Grid container spacing={isMobileOrSmaller ? 2 : 3} sx={{ display: 'flex', flexWrap: 'nowrap', width: 'fit-content' }}>
+            <Grid container spacing={isMobileOrSmaller ? 2 : 3}>
               {/* CSV 다운로드 */}
-              <Grid item sx={{ minWidth: isMobileOrSmaller ? '280px' : 'auto', flex: '0 0 auto', width: 'auto' }}>
+              <Grid item xs={12} md={4}>
                 <Card sx={{ height: '100%', border: '1px solid #1976d2' }}>
                   <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -4949,7 +4535,7 @@ const AdminDashboard = () => {
               </Grid>
 
               {/* CSV 업로드 */}
-              <Grid item sx={{ minWidth: isMobileOrSmaller ? '280px' : 'auto', flex: '0 0 auto', width: 'auto' }}>
+              <Grid item xs={12} md={4}>
                 <Card sx={{ height: '100%', border: '1px solid #ff9800' }}>
                   <CardContent sx={{ p: isMobileOrSmaller ? 2 : 3 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -5009,8 +4595,7 @@ const AdminDashboard = () => {
               </Grid>
 
               {/* 초기화 요청 */}
-              </Grid>
-            </Box>
+            </Grid>
 
             {/* 추가 안전 장치 */}
             <Card sx={{ mt: 3, backgroundColor: '#fff3e0' }}>
@@ -5039,81 +4624,78 @@ const AdminDashboard = () => {
           }} maxWidth="md" fullWidth>
             <DialogTitle>{editingItem ? '클래스 수정' : '클래스 추가'}</DialogTitle>
             <DialogContent>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
-                <TextField
-                  fullWidth
-                  label="클래스명"
-                  value={classForm.name || ''}
-                  InputProps={{
-                    readOnly: true,
-                    disabled: editingItem ? true : false,
-                  }}
-                  disabled={editingItem ? true : false}
-                  helperText={editingItem ? "클래스명은 수정할 수 없습니다. 학년과 반을 수정하면 자동으로 변경됩니다." : "클래스명은 학년과 반으로 자동 생성됩니다"}
-                  size="medium"
-                />
-                <TextField
-                  fullWidth
-                  label="학년"
-                  type="number"
-                  value={classForm.grade || ''}
-                  onChange={(e) => setClassForm({...classForm, grade: parseInt(e.target.value)})}
-                  required
-                  size="medium"
-                />
-                <TextField
-                  fullWidth
-                  label="반"
-                  type="number"
-                  value={classForm.class || ''}
-                  onChange={(e) => setClassForm({...classForm, class: parseInt(e.target.value)})}
-                  required
-                  size="medium"
-                />
-                <FormControl fullWidth required>
-                  <InputLabel>담임교사</InputLabel>
-                  <Select
-                    value={classForm.homeroomTeacher || ''}
-                    onChange={(e) => setClassForm({...classForm, homeroomTeacher: e.target.value})}
-                    label="담임교사"
+              <Grid container spacing={3} sx={{ mt: 1 }}>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="클래스명"
+                    value={classForm.name || ''}
+                    InputProps={{
+                      readOnly: true,
+                    }}
+                    helperText="클래스명은 학년과 반으로 자동 생성됩니다"
                     size="medium"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="학년"
+                    type="number"
+                    value={classForm.grade || ''}
+                    onChange={(e) => setClassForm({...classForm, grade: parseInt(e.target.value)})}
                     required
-                  >
-                    <MenuItem value="">담임교사 선택</MenuItem>
-                    {teachers.filter(t => t.role === 'homeroom_teacher').map(teacher => (
-                      <MenuItem key={teacher.id} value={teacher.id}>
-                        {teacher.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl fullWidth>
-                  <InputLabel>교과목 교사 (다중 선택 가능)</InputLabel>
-                  <Select
-                    multiple
-                    value={classForm.subjectTeachers || []}
-                    onChange={(e) => setClassForm({...classForm, subjectTeachers: e.target.value})}
-                    label="교과목 교사 (다중 선택 가능)"
                     size="medium"
-                    renderValue={(selected) => (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((value) => {
-                          const teacher = teachers.find(t => t.id === value);
-                          return teacher ? (
-                            <Chip key={value} label={`${teacher.name} (${teacher.subject || '과목 미지정'})`} size="small" />
-                          ) : null;
-                        })}
-                      </Box>
-                    )}
-                  >
-                    {teachers.filter(t => t.role === 'subject_teacher').map(teacher => (
-                      <MenuItem key={teacher.id} value={teacher.id}>
-                        {teacher.name} ({teacher.subject || '과목 미지정'})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Box>
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="반"
+                    type="number"
+                    value={classForm.class || ''}
+                    onChange={(e) => setClassForm({...classForm, class: parseInt(e.target.value)})}
+                    required
+                    size="medium"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <InputLabel>담임교사</InputLabel>
+                    <Select
+                      value={classForm.homeroomTeacher || ''}
+                      onChange={(e) => setClassForm({...classForm, homeroomTeacher: e.target.value})}
+                      label="담임교사"
+                      size="medium"
+                    >
+                      <MenuItem value="">담임교사 선택</MenuItem>
+                      {teachers.filter(t => t.role === 'homeroom_teacher').map(teacher => (
+                        <MenuItem key={teacher.id} value={teacher.id}>
+                          {teacher.name}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <InputLabel>교과목 교사 (다중 선택 가능)</InputLabel>
+                    <Select
+                      multiple
+                      value={classForm.subjectTeachers || []}
+                      onChange={(e) => setClassForm({...classForm, subjectTeachers: e.target.value})}
+                      label="교과목 교사 (다중 선택 가능)"
+                      size="medium"
+                    >
+                      {teachers.filter(t => t.role === 'subject_teacher').map(teacher => (
+                        <MenuItem key={teacher.id} value={teacher.id}>
+                          {teacher.name} ({teacher.subject || '과목 미지정'})
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </Grid>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => {
@@ -5136,56 +4718,68 @@ const AdminDashboard = () => {
                   {error}
                 </Alert>
               )}
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
-                <TextField
-                  fullWidth
-                  label="이름"
-                  value={teacherForm.name}
-                  onChange={(e) => setTeacherForm({...teacherForm, name: e.target.value})}
-                  required
-                  size="medium"
-                />
-                <TextField
-                  fullWidth
-                  label="이메일"
-                  type="email"
-                  value={teacherForm.email}
-                  onChange={editingItem ? undefined : (e) => setTeacherForm({...teacherForm, email: e.target.value})}
-                  required
-                  size="medium"
-                  disabled={editingItem ? true : false}
-                  helperText={editingItem ? "이메일은 수정할 수 없습니다." : ""}
-                />
-                <FormControl fullWidth>
-                  <InputLabel>역할</InputLabel>
-                  <Select
-                    value={teacherForm.role}
-                    onChange={(e) => setTeacherForm({...teacherForm, role: e.target.value})}
-                    label="역할"
-                    size="medium"
-                  >
-                    <MenuItem value="homeroom_teacher">담임교사</MenuItem>
-                    <MenuItem value="subject_teacher">교과목교사</MenuItem>
-                  </Select>
-                </FormControl>
-                {teacherForm.role === 'subject_teacher' && (
+              <Grid container spacing={3} sx={{ mt: 1 }}>
+                <Grid item xs={12}>
                   <TextField
                     fullWidth
-                    label="담당 과목"
-                    value={teacherForm.subject}
-                    onChange={(e) => setTeacherForm({...teacherForm, subject: e.target.value})}
+                    label="이름"
+                    value={teacherForm.name}
+                    onChange={(e) => setTeacherForm({...teacherForm, name: e.target.value})}
                     required
                     size="medium"
                   />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="이메일"
+                    type="email"
+                    value={teacherForm.email}
+                    onChange={editingItem ? undefined : (e) => setTeacherForm({...teacherForm, email: e.target.value})}
+                    required
+                    size="medium"
+                    InputProps={{
+                      readOnly: editingItem ? true : false
+                    }}
+                    helperText={editingItem ? "이메일은 수정할 수 없습니다." : ""}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <InputLabel>역할</InputLabel>
+                    <Select
+                      value={teacherForm.role}
+                      onChange={(e) => setTeacherForm({...teacherForm, role: e.target.value})}
+                      label="역할"
+                      size="medium"
+                    >
+                      <MenuItem value="homeroom_teacher">담임교사</MenuItem>
+                      <MenuItem value="subject_teacher">교과목교사</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                {teacherForm.role === 'subject_teacher' && (
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="담당 과목"
+                      value={teacherForm.subject}
+                      onChange={(e) => setTeacherForm({...teacherForm, subject: e.target.value})}
+                      required
+                      size="medium"
+                    />
+                  </Grid>
                 )}
-                <TextField
-                  fullWidth
-                  label="전화번호"
-                  value={teacherForm.phone}
-                  onChange={(e) => setTeacherForm({...teacherForm, phone: e.target.value})}
-                  size="medium"
-                />
-              </Box>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="전화번호"
+                    value={teacherForm.phone}
+                    onChange={(e) => setTeacherForm({...teacherForm, phone: e.target.value})}
+                    size="medium"
+                  />
+                </Grid>
+              </Grid>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => {
@@ -5372,62 +4966,60 @@ const AdminDashboard = () => {
                   {error}
                 </Alert>
               )}
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
-                <TextField
-                  fullWidth
-                  label="이름"
-                  value={studentForm.name}
-                  onChange={(e) => setStudentForm({...studentForm, name: e.target.value})}
-                  required
-                  size="medium"
-                />
-                <FormControl fullWidth required>
-                  <InputLabel>클래스 선택</InputLabel>
-                  <Select
-                    value={studentForm.selectedClassId}
-                    onChange={(e) => setStudentForm({...studentForm, selectedClassId: e.target.value})}
-                    label="클래스 선택"
-                    size="medium"
+              <Grid container spacing={3} sx={{ mt: 1 }}>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="이름"
+                    value={studentForm.name}
+                    onChange={(e) => setStudentForm({...studentForm, name: e.target.value})}
                     required
-                  >
-                    {classes
-                      .sort((a, b) => {
-                        // 먼저 학년으로 정렬
-                        if (a.grade !== b.grade) {
-                          return a.grade - b.grade;
-                        }
-                        // 학년이 같으면 반으로 정렬
-                        return a.class - b.class;
-                      })
-                      .map(cls => (
+                    size="medium"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <InputLabel>클래스 선택</InputLabel>
+                    <Select
+                      value={studentForm.selectedClassId}
+                      onChange={(e) => setStudentForm({...studentForm, selectedClassId: e.target.value})}
+                      label="클래스 선택"
+                      size="medium"
+                    >
+                      {classes.map(cls => (
                         <MenuItem key={cls.id} value={cls.id}>
                           {cls.name}
                         </MenuItem>
                       ))}
-                  </Select>
-                </FormControl>
-                <TextField
-                  fullWidth
-                  label="번호"
-                  type="number"
-                  value={studentForm.number}
-                  onChange={(e) => setStudentForm({...studentForm, number: e.target.value})}
-                  required
-                  size="medium"
-                />
-                <TextField
-                  fullWidth
-                  label="생년월일"
-                  type="date"
-                  value={studentForm.birthDate}
-                  onChange={(e) => setStudentForm({...studentForm, birthDate: e.target.value})}
-                  InputLabelProps={{
-                    shrink: true,
-                  }}
-                  required
-                  size="medium"
-                />
-              </Box>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="번호"
+                    type="number"
+                    value={studentForm.number}
+                    onChange={(e) => setStudentForm({...studentForm, number: e.target.value})}
+                    required
+                    size="medium"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="생년월일"
+                    type="date"
+                    value={studentForm.birthDate}
+                    onChange={(e) => setStudentForm({...studentForm, birthDate: e.target.value})}
+                    InputLabelProps={{
+                      shrink: true,
+                    }}
+                    required
+                    size="medium"
+                  />
+                </Grid>
+              </Grid>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => {
@@ -5486,128 +5078,6 @@ const AdminDashboard = () => {
           </DialogActions>
         </Dialog>
 
-        {/* 상벌점 상세 정보 다이얼로그 */}
-        <Dialog
-          open={showMeritDetailDialog}
-          onClose={() => {
-            setShowMeritDetailDialog(false);
-            setSelectedMeritRecord(null);
-          }}
-          maxWidth="md"
-          fullWidth
-        >
-          <DialogTitle>상벌점 상세 정보</DialogTitle>
-          <DialogContent>
-            {selectedMeritRecord && (() => {
-              // studentId와 student_id 두 필드 모두 확인 (기존 fetchStudentMeritHistory 로직 활용)
-              const student = students.find(s => 
-                s.id === selectedMeritRecord.studentId || 
-                s.studentId === selectedMeritRecord.studentId ||
-                s.id === selectedMeritRecord.student_id ||
-                s.studentId === selectedMeritRecord.student_id
-              );
-              const studentName = student?.name || selectedMeritRecord.studentName || selectedMeritRecord.student_name || '알 수 없음';
-              const studentId = student?.studentId || selectedMeritRecord.studentId || selectedMeritRecord.student_id || '알 수 없음';
-              const isHomeroom = selectedMeritRecord.creatorRole === 'homeroom_teacher' || selectedMeritRecord.creatorRole === 'homeroomTeacher';
-              
-              // 처리 교사 정보 (기존 로직 활용)
-              const requesterName = selectedMeritRecord.requesterName || selectedMeritRecord.requestingTeacherName || selectedMeritRecord.requester_name || selectedMeritRecord.creatorName || '알 수 없음';
-              const processorName = selectedMeritRecord.processedTeacherName || selectedMeritRecord.processedByName || selectedMeritRecord.processorName || selectedMeritRecord.creatorName || '알 수 없음';
-              
-              return (
-                <Box sx={{ mt: 2 }}>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" color="text.secondary">학생 이름</Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>{studentName}</Typography>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" color="text.secondary">학번</Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>{studentId}</Typography>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" color="text.secondary">구분</Typography>
-                      <Chip
-                        label={selectedMeritRecord.type === 'merit' ? '상점' : '벌점'}
-                        color={selectedMeritRecord.type === 'merit' ? 'success' : 'error'}
-                        sx={{ mb: 2 }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" color="text.secondary">점수</Typography>
-                      <Chip
-                        label={`${selectedMeritRecord.points > 0 ? '+' : ''}${selectedMeritRecord.points}점`}
-                        color={selectedMeritRecord.points > 0 ? 'success' : 'error'}
-                        sx={{ mb: 2 }}
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Typography variant="subtitle2" color="text.secondary">사유</Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>
-                        {selectedMeritRecord.reason || selectedMeritRecord.meritReason || '-'}
-                      </Typography>
-                    </Grid>
-                    {selectedMeritRecord.description && (
-                      <Grid item xs={12}>
-                        <Typography variant="subtitle2" color="text.secondary">상세 설명</Typography>
-                        <Typography variant="body1" sx={{ mb: 2 }}>
-                          {selectedMeritRecord.description}
-                        </Typography>
-                      </Grid>
-                    )}
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" color="text.secondary">요청자</Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>{requesterName}</Typography>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" color="text.secondary">처리자</Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>{processorName}</Typography>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" color="text.secondary">담임 여부</Typography>
-                      <Chip
-                        label={isHomeroom ? '담임교사' : '교과목 교사'}
-                        color={isHomeroom ? 'primary' : 'default'}
-                        sx={{ mb: 2 }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" color="text.secondary">처리일시</Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>
-                        {selectedMeritRecord.createdAt ? new Date(selectedMeritRecord.createdAt).toLocaleString('ko-KR') : '-'}
-                      </Typography>
-                    </Grid>
-                    {selectedMeritRecord.updatedAt && (
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="subtitle2" color="text.secondary">수정일시</Typography>
-                        <Typography variant="body1" sx={{ mb: 2 }}>
-                          {new Date(selectedMeritRecord.updatedAt).toLocaleString('ko-KR')}
-                        </Typography>
-                      </Grid>
-                    )}
-                    {selectedMeritRecord.status && (
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="subtitle2" color="text.secondary">상태</Typography>
-                        <Chip
-                          label={selectedMeritRecord.status === 'approved' ? '승인됨' : selectedMeritRecord.status === 'pending' ? '대기중' : selectedMeritRecord.status === 'rejected' ? '거부됨' : selectedMeritRecord.status}
-                          color={selectedMeritRecord.status === 'approved' ? 'success' : selectedMeritRecord.status === 'pending' ? 'warning' : selectedMeritRecord.status === 'rejected' ? 'error' : 'default'}
-                          sx={{ mb: 2 }}
-                        />
-                      </Grid>
-                    )}
-                  </Grid>
-                </Box>
-              );
-            })()}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => {
-              setShowMeritDetailDialog(false);
-              setSelectedMeritRecord(null);
-            }}>닫기</Button>
-          </DialogActions>
-        </Dialog>
-
         {/* 학생 상벌점 이력 다이얼로그 */}
         <Dialog 
           open={showStudentMeritHistoryDialog} 
@@ -5636,17 +5106,15 @@ const AdminDashboard = () => {
                       </Typography>
                   </Grid>
                   <Grid item xs={12} sm={6}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography variant="body2" color="text.secondary" component="span">
-                        누계 점수: 
-                      </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      누계 점수: 
                       <Chip
                         label={selectedStudentForHistory.cumulativeScore || 0}
                         color={selectedStudentForHistory.cumulativeScore > 0 ? 'success' : selectedStudentForHistory.cumulativeScore < 0 ? 'error' : 'default'}
                         size="small"
-                        sx={{ fontWeight: 'bold' }}
+                        sx={{ ml: 1, fontWeight: 'bold' }}
                       />
-                    </Box>
+                      </Typography>
                   </Grid>
                 </Grid>
               </Box>
@@ -5661,50 +5129,32 @@ const AdminDashboard = () => {
                 상벌점 기록이 없습니다.
                             </Typography>
             ) : (
-              <TableContainer 
-                component={Paper}
-                sx={{
-                  overflowX: 'auto',
-                  '&::-webkit-scrollbar': {
-                    height: '8px',
-                  },
-                  '&::-webkit-scrollbar-track': {
-                    backgroundColor: '#f1f1f1',
-                  },
-                  '&::-webkit-scrollbar-thumb': {
-                    backgroundColor: '#888',
-                    borderRadius: '4px',
-                  },
-                  '&::-webkit-scrollbar-thumb:hover': {
-                    backgroundColor: '#555',
-                  },
-                }}
-              >
-                <Table sx={{ minWidth: 650 }}>
+                      <TableContainer component={Paper}>
+                <Table>
                           <TableHead>
                             <TableRow>
-                      <TableCell sx={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>날짜</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>유형</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>점수</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>사유</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>상세 내용</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>처리 교사</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>날짜</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>유형</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>점수</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>사유</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>상세 내용</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>처리 교사</TableCell>
                             </TableRow>
                           </TableHead>
                           <TableBody>
                     {studentMeritHistory.map((record) => (
                       <TableRow key={record.id}>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                        <TableCell>
                           {record.createdAt ? new Date(record.createdAt).toLocaleString() : 'N/A'}
                         </TableCell>
-                                  <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                  <TableCell>
                                     <Chip
                             label={record.type === 'merit' ? '상점' : '벌점'}
                             color={record.type === 'merit' ? 'success' : 'error'}
                                       size="small"
                                     />
                                   </TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                        <TableCell>
                           <Chip
                             label={record.points > 0 ? `+${record.points}` : record.points}
                             color={record.points > 0 ? 'success' : 'error'}
@@ -5714,7 +5164,7 @@ const AdminDashboard = () => {
                         </TableCell>
                         <TableCell>{record.reason || ''}</TableCell>
                         <TableCell>{record.description || ''}</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                        <TableCell>
                           {record.processedTeacherName || record.teacherName || record.creatorName || 'N/A'}
                                 </TableCell>
                               </TableRow>
@@ -5729,7 +5179,7 @@ const AdminDashboard = () => {
           </DialogActions>
         </Dialog>
                     </Box>
-        </Box>
+    </Box>
   );
 
 };

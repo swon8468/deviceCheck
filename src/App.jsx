@@ -1,6 +1,7 @@
 import React from 'react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
-import { CssBaseline, Box, Container, Snackbar, Button, Alert } from '@mui/material';
+import { CssBaseline, Box, Container, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Typography } from '@mui/material';
+import { Update, Refresh } from '@mui/icons-material';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/AdminDashboard';
@@ -168,10 +169,6 @@ const App = () => {
     updateServiceWorker(true);
   };
 
-  const handleDismiss = () => {
-    setNeedRefresh(false);
-  };
-
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -192,46 +189,89 @@ const App = () => {
           <AppContent />
         </AuthProvider>
         
-        {/* PWA 업데이트 알림 */}
-        <Snackbar
+        {/* PWA 업데이트 알림 - 전체 화면 Dialog */}
+        <Dialog
           open={needRefresh}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-          sx={{
-            bottom: { xs: '90px', sm: '24px' },
-            zIndex: 9999,
+          disableEscapeKeyDown
+          fullScreen
+          PaperProps={{
+            sx: {
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 4,
+            }
           }}
         >
-          <Alert
-            severity="info"
-            action={
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button
-                  color="inherit"
-                  size="small"
-                  onClick={handleUpdate}
-                  sx={{ fontWeight: 'bold' }}
-                >
-                  새로고침
-                </Button>
-                <Button
-                  color="inherit"
-                  size="small"
-                  onClick={handleDismiss}
-                >
-                  나중에
-                </Button>
-              </Box>
-            }
+          <DialogContent
             sx={{
-              width: '100%',
-              '& .MuiAlert-message': {
-                flex: 1,
-              },
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+              color: 'white',
+              flex: 1,
             }}
           >
-            새로운 업데이트가 있습니다!
-          </Alert>
-        </Snackbar>
+            <Update sx={{ fontSize: 80, mb: 3, color: 'white' }} />
+            <DialogTitle
+              sx={{
+                color: 'white',
+                fontSize: { xs: '1.5rem', sm: '2rem', md: '2.5rem' },
+                fontWeight: 'bold',
+                mb: 2,
+                textAlign: 'center',
+                padding: 0,
+              }}
+            >
+              새로운 업데이트가 있습니다!
+            </DialogTitle>
+            <DialogContentText
+              sx={{
+                color: 'rgba(255, 255, 255, 0.9)',
+                fontSize: { xs: '1rem', sm: '1.2rem' },
+                mb: 4,
+                maxWidth: '600px',
+                textAlign: 'center',
+              }}
+            >
+              앱의 새 버전이 준비되었습니다. 계속 사용하려면 업데이트가 필요합니다.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions
+            sx={{
+              display: 'flex',
+              gap: 2,
+              justifyContent: 'center',
+              padding: 3,
+              width: '100%',
+              maxWidth: '500px',
+            }}
+          >
+            <Button
+              variant="contained"
+              size="large"
+              onClick={handleUpdate}
+              startIcon={<Refresh />}
+              sx={{
+                backgroundColor: 'white',
+                color: '#667eea',
+                fontWeight: 'bold',
+                fontSize: { xs: '1rem', sm: '1.1rem' },
+                padding: { xs: '12px 48px', sm: '14px 64px' },
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                },
+                minWidth: { xs: '100%', sm: '300px' },
+              }}
+            >
+              업데이트 및 새로고침
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </ThemeProvider>
   );

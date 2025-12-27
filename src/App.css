@@ -1,17 +1,8 @@
 #root {
-  width: 100%;
-  max-width: 100vw;
-  margin: 0;
-  padding: 0;
-  text-align: left;
-  background-color: #F5F7FA; /* 파스텔 톤 배경색 */
-  min-height: 100vh;
-}
-
-body {
-  background-color: #F5F7FA; /* 파스텔 톤 배경색 */
-  margin: 0;
-  padding: 0;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
 }
 
 .logo {

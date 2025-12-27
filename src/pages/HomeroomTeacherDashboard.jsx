@@ -178,18 +178,22 @@ const HomeroomTeacherDashboard = () => {
 
   // classes와 students가 변경될 때마다 학년 클래스 목록 업데이트
   useEffect(() => {
+    console.log('classes/students useEffect 트리거됨:', { 
+      classesLength: classes.length, 
+      studentsLength: students.length,
+      currentUser: !!currentUser 
+    });
     if (classes.length > 0 && students.length > 0 && currentUser) {
+      console.log('fetchGradeClasses 호출 예정');
       fetchGradeClasses();
     } else {
+      console.log('fetchGradeClasses 호출 조건 미충족:', { 
+        classesLength: classes.length, 
+        studentsLength: students.length,
+        currentUser: !!currentUser 
+      });
     }
   }, [classes, students, currentUser]);
-
-  // 학년 관리 탭이 열릴 때 또는 students가 변경될 때 같은 학년 학생 조회
-  useEffect(() => {
-    if (tabValue === 3 && students.length > 0 && currentUser) {
-      fetchGradeStudents();
-    }
-  }, [tabValue, students, currentUser]);
   
   const [meritForm, setMeritForm] = useState({
     studentId: '',
@@ -401,6 +405,7 @@ const HomeroomTeacherDashboard = () => {
         });
       }
     } catch (error) {
+      console.error('요청 승인 오류:', error);
       await Swal.fire({
         title: '오류',
         text: '요청 승인 중 오류가 발생했습니다: ' + error.message,
@@ -432,6 +437,7 @@ const HomeroomTeacherDashboard = () => {
         });
       }
     } catch (error) {
+      console.error('요청 거부 오류:', error);
       await Swal.fire({
         title: '오류',
         text: '요청 거부 중 오류가 발생했습니다: ' + error.message,
@@ -453,6 +459,14 @@ const HomeroomTeacherDashboard = () => {
       
       const requestData = requestDoc.data();
       
+      console.log('=== handleRequestAction 디버깅 ===');
+      console.log('requestId:', requestId);
+      console.log('status:', status);
+      console.log('requestData:', requestData);
+      console.log('requestData.studentId:', requestData.studentId);
+      console.log('requestData.student_id:', requestData.student_id);
+      console.log('requestData.points:', requestData.points);
+      console.log('requestData.value:', requestData.value);
       
       await logMeritAction(
         currentUser,
@@ -468,30 +482,37 @@ const HomeroomTeacherDashboard = () => {
         responseNote: status === 'approved' ? '담임 교사 승인' : '담임 교사 거부'
       });
 
-      // 시스템 로그 추가
-      try {
-        await addDoc(collection(db, 'system_logs'), {
-          userId: currentUser.uid,
-          userName: currentUser.name || currentUser.email,
-          userRole: currentUser.role,
-          majorCategory: '상벌점 관리',
-          middleCategory: '상벌점 요청 처리',
-          minorCategory: '',
-          action: `상벌점 요청 ${status === 'approved' ? '승인' : '거부'}`,
-          details: `${currentUser.name || currentUser.email}님이 ${requestData.studentName || '학생'}의 상벌점 요청을 ${status === 'approved' ? '승인' : '거부'}했습니다. (요청 교사: ${requestData.requestingTeacherName || '교과목 교사'})`,
-          timestamp: new Date(),
-          createdAt: new Date()
-        });
-      } catch (logError) {
-        // 로그 기록 오류 무시
+      // 시스템 로그 추가 (super_admin 제외)
+      if (currentUser.role !== 'super_admin') {
+        try {
+          await addDoc(collection(db, 'system_logs'), {
+            userId: currentUser.uid,
+            userName: currentUser.name || currentUser.email,
+            userRole: currentUser.role,
+            majorCategory: '상벌점 관리',
+            middleCategory: '상벌점 요청 처리',
+            minorCategory: '',
+            action: `상벌점 요청 ${status === 'approved' ? '승인' : '거부'}`,
+            details: `${currentUser.name || currentUser.email}님이 ${requestData.studentName || '학생'}의 상벌점 요청을 ${status === 'approved' ? '승인' : '거부'}했습니다. (요청 교사: ${requestData.requestingTeacherName || '교과목 교사'})`,
+            timestamp: new Date(),
+            createdAt: new Date()
+          });
+        } catch (logError) {
+          console.error('시스템 로그 기록 오류:', logError);
+        }
       }
 
       if (status === 'approved') {
         // studentId 안전하게 가져오기
         const studentId = requestData.studentId || requestData.student_id;
         
+        console.log('=== studentId 디버깅 ===');
+        console.log('requestData.studentId:', requestData.studentId);
+        console.log('requestData.student_id:', requestData.student_id);
+        console.log('최종 studentId:', studentId);
         
         if (!studentId) {
+          console.error('studentId를 찾을 수 없습니다. requestData 전체:', requestData);
           throw new Error('학생 ID를 찾을 수 없습니다.');
         }
         
@@ -533,6 +554,11 @@ const HomeroomTeacherDashboard = () => {
           // points가 이미 음수/양수로 저장되어 있으므로 그대로 더하기
           const newScore = currentScore + points;
           
+          console.log('=== cumulativeScore 업데이트 디버깅 ===');
+          console.log('현재 점수:', currentScore);
+          console.log('추가할 점수:', points);
+          console.log('새로운 점수:', newScore);
+          console.log('요청 타입:', requestData.type);
           
           await updateDoc(studentRef, {
             cumulativeScore: newScore,
@@ -545,6 +571,7 @@ const HomeroomTeacherDashboard = () => {
       await fetchPendingRequests();
       await fetchMeritRecords();
     } catch (error) {
+      console.error('요청 처리 오류:', error);
       throw error;
     }
   };
@@ -757,11 +784,52 @@ const HomeroomTeacherDashboard = () => {
                 ...doc.data()
               }));
               
+              console.log('=== 클래스 데이터 상세 디버깅 ===');
+              console.log('전체 클래스 개수:', allClasses.length);
+              allClasses.forEach((cls, index) => {
+                console.log(`클래스 ${index + 1}:`, {
+                  id: cls.id,
+                  name: cls.name,
+                  grade: cls.grade,
+                  class: cls.class,
+                  homeroom_teacher: cls.homeroom_teacher,
+                  homeroom_teacher_id: cls.homeroom_teacher_id,
+                  homeroom_teacher_name: cls.homeroom_teacher_name,
+                  homeroom_teacher_email: cls.homeroom_teacher_email,
+                  teacher_name: cls.teacher_name,
+                  teacher_email: cls.teacher_email
+                });
+              });
               
               setClasses(allClasses);
               
+              console.log('=== 클래스 정보 실시간 업데이트 시작 ===');
+              console.log('클래스 정보 실시간 업데이트:', allClasses.length, '개 클래스');
+              console.log('현재 사용자 정보:', {
+                uid: currentUser.uid,
+                id: currentUser.id,
+                name: currentUser.name,
+                role: currentUser.role
+              });
+              console.log('현재 사용자 전체 객체:', currentUser);
+              console.log('모든 클래스 정보:', allClasses);
               
               // 각 클래스의 상세 정보 확인
+              allClasses.forEach((cls, index) => {
+                console.log(`클래스 ${index + 1} 상세 정보:`, {
+                  id: cls.id,
+                  name: cls.name,
+                  grade: cls.grade,
+                  class: cls.class,
+                  homeroomTeacher: cls.homeroomTeacher,
+                  homeroomTeacherId: cls.homeroomTeacherId,
+                  teacherId: cls.teacherId,
+                  담임교사: cls.담임교사,
+                  담임교사ID: cls.담임교사ID,
+                  모든_필드: Object.keys(cls),
+                  전체_데이터: cls
+                });
+              });
               
               // 담임 교사가 담당하는 클래스들 필터링
               const assignedClasses = allClasses.filter(cls => {
@@ -769,6 +837,13 @@ const HomeroomTeacherDashboard = () => {
                 const userId = currentUser.uid || currentUser.id || currentUser.userId;
                 const userEmail = currentUser.email;
                 
+                console.log('사용자 ID 확인:', {
+                  uid: currentUser.uid,
+                  id: currentUser.id,
+                  userId: currentUser.userId,
+                  email: currentUser.email,
+                  최종_사용자_ID: userId
+                });
                 
                 // AdminDashboard에서 설정하는 필드명에 맞춰서 확인
                 const isAssigned = 
@@ -781,14 +856,39 @@ const HomeroomTeacherDashboard = () => {
                   cls.homeroomTeacher === userEmail ||
                   cls.homeroomTeacherId === userEmail;
                 
+                console.log(`실시간 클래스 ${cls.grade}학년 ${cls.class}반 담당 교사 검사:`, {
+                  클래스_ID: cls.id,
+                  homeroomTeacher: cls.homeroomTeacher,
+                  homeroomTeacherId: cls.homeroomTeacherId,
+                  currentUserUid: currentUser.uid,
+                  currentUserId: currentUser.id,
+                  최종_사용자_ID: userId,
+                  사용자_이메일: userEmail,
+                  isAssigned,
+                  매칭_상세: {
+                    homeroomTeacher_최종ID_매칭: cls.homeroomTeacher === userId,
+                    homeroomTeacherId_최종ID_매칭: cls.homeroomTeacherId === userId,
+                    homeroomTeacher_uid_매칭: cls.homeroomTeacher === currentUser.uid,
+                    homeroomTeacherId_uid_매칭: cls.homeroomTeacherId === currentUser.uid,
+                    homeroomTeacher_id_매칭: cls.homeroomTeacher === currentUser.id,
+                    homeroomTeacherId_id_매칭: cls.homeroomTeacherId === currentUser.id,
+                    homeroomTeacher_이메일_매칭: cls.homeroomTeacher === userEmail,
+                    homeroomTeacherId_이메일_매칭: cls.homeroomTeacherId === userEmail
+                  }
+                });
                 
                 return isAssigned;
               });
               
+              console.log('실시간 - 전체 클래스 수:', allClasses.length);
+              console.log('실시간 - 담당 클래스 수:', assignedClasses.length);
+              console.log('실시간 - 담당 클래스들:', assignedClasses);
               
               // 담당 클래스가 정확히 하나인지 확인
               if (assignedClasses.length !== 1) {
+                console.warn(`실시간 - 담당 클래스가 ${assignedClasses.length}개입니다. 정확히 1개여야 합니다.`);
                 // 담당 클래스가 1개가 아니면 학생 목록 초기화
+                console.log('실시간 - 담당 클래스가 1개가 아니므로 학생 목록 초기화');
                 setStudents([]);
                 return;
               }
@@ -800,11 +900,15 @@ const HomeroomTeacherDashboard = () => {
               assignedClasses.forEach(cls => {
                 validClassKeys.add(`${cls.grade}-${cls.class}`);
                 validClassIds.add(cls.id);
+                console.log(`실시간 - 담당 클래스 추가: ${cls.grade}학년 ${cls.class}반 (ID: ${cls.id})`);
               });
               
+              console.log('실시간 - 유효한 클래스 키들:', Array.from(validClassKeys));
+              console.log('실시간 - 유효한 클래스 ID들:', Array.from(validClassIds));
               
               // 기존 학생 구독 해제
               if (unsubscribeStudents) {
+                console.log('기존 학생 리스너 정리');
                 unsubscribeStudents();
               }
               
@@ -815,6 +919,15 @@ const HomeroomTeacherDashboard = () => {
               unsubscribeStudents = onSnapshot(studentsQuery, (studentsSnapshot) => {
                 const studentsData = [];
                 
+                console.log('=== 학생 필터링 시작 ===');
+                console.log('실시간 - 전체 학생 수:', studentsSnapshot.size);
+                console.log('실시간 - 유효한 클래스 키들:', Array.from(validClassKeys));
+                console.log('현재 사용자 정보 (학생 필터링):', {
+                  uid: currentUser.uid,
+                  id: currentUser.id,
+                  name: currentUser.name,
+                  role: currentUser.role
+                });
                 
                 studentsSnapshot.forEach((doc) => {
                     const studentData = doc.data();
@@ -837,24 +950,44 @@ const HomeroomTeacherDashboard = () => {
                       studentData.homeroomTeacher === userEmail ||
                       studentData.homeroomTeacherId === userEmail;
                     
+                    console.log(`실시간 - 학생 ${studentData.name} (${studentData.grade}학년 ${studentData.class}반) 검사:`, {
+                      classKey,
+                      studentClassId: studentData.classId,
+                      studentHomeroomTeacher: studentData.homeroomTeacher,
+                      studentHomeroomTeacherId: studentData.homeroomTeacherId,
+                      currentUserUid: currentUser.uid,
+                      currentUserId: currentUser.id,
+                      isInAssignedClass,
+                      isHomeroomTeacherMatch,
+                      validClassKeys: Array.from(validClassKeys)
+                    });
                     
                     // 유효한 클래스에 속하고 담임 교사가 일치하는 학생만 필터링
                     if (isInAssignedClass && isHomeroomTeacherMatch) {
+                      console.log(`✓ 실시간 - 학생 ${studentData.name} 추가됨 - 담당 클래스이고 담임 교사 일치`);
                       studentsData.push({
                         id: doc.id,
                         ...studentData
                       });
                     } else {
                       if (!isInAssignedClass) {
+                        console.log(`✗ 실시간 - 학생 ${studentData.name} 제외됨 - 담당 클래스가 아님`);
                       } else if (!isHomeroomTeacherMatch) {
+                        console.log(`✗ 실시간 - 학생 ${studentData.name} 제외됨 - 담임 교사가 일치하지 않음`);
                       }
                     }
                   });
                   
+                  console.log('=== 학생 필터링 결과 ===');
+                  console.log('실시간 - 최종 필터링된 학생들:', studentsData);
+                  console.log('실시간 - 필터링된 학생 수:', studentsData.length);
+                  console.log('=== 학생 필터링 완료 ===');
                   setStudents(studentsData);
                 }, (error) => {
+                  console.error('학생 실시간 업데이트 오류:', error);
                 });
             }, (error) => {
+              console.error('클래스 실시간 업데이트 오류:', error);
             });
             
             // 클래스 구독 해제 함수는 onSnapshot에서 반환됨
@@ -862,25 +995,30 @@ const HomeroomTeacherDashboard = () => {
           
           setupRealtimeListeners();
           
-          // 담임 교사 대시보드 접근 로그 기록
-          try {
-            await addDoc(collection(db, 'system_logs'), {
-              userId: currentUser.uid,
-              userName: currentUser.name || currentUser.email,
-              userRole: currentUser.role,
-              majorCategory: '교사 활동',
-              middleCategory: '대시보드 접근',
-              minorCategory: '',
-              action: '담임 교사 대시보드 접근',
-              details: `${currentUser.name || currentUser.email}님이 담임 교사 대시보드에 접근했습니다.`,
-              timestamp: new Date(),
-              createdAt: new Date()
-            });
-          } catch (logError) {
-            // 로그 기록 오류 무시
+          // 담임 교사 대시보드 접근 로그 기록 (super_admin 제외)
+          if (currentUser.role !== 'super_admin') {
+            try {
+              await addDoc(collection(db, 'system_logs'), {
+                userId: currentUser.uid,
+                userName: currentUser.name || currentUser.email,
+                userRole: currentUser.role,
+                majorCategory: '교사 활동',
+                middleCategory: '대시보드 접근',
+                minorCategory: '',
+                action: '담임 교사 대시보드 접근',
+                details: `${currentUser.name || currentUser.email}님이 담임 교사 대시보드에 접근했습니다.`,
+                timestamp: new Date(),
+                createdAt: new Date()
+              });
+            } catch (logError) {
+              console.error('시스템 로그 기록 오류:', logError);
+            }
           }
           
           // 디버깅을 위한 테스트 함수
+          console.log('=== 담임 교사 대시보드 초기화 완료 ===');
+          console.log('현재 사용자:', currentUser);
+          console.log('실시간 리스너 설정 완료');
         } catch (error) {
           setError(error.message);
         }
@@ -889,9 +1027,11 @@ const HomeroomTeacherDashboard = () => {
       setupListeners();
       
       // 상벌점 사유 로드
+      console.log('담임교사 useEffect - fetchMeritReasons 호출');
       fetchMeritReasons();
       
       // 학년 관리 요청 내역 로드
+      console.log('담임교사 useEffect - fetchGradeRequests 호출');
       fetchGradeRequests();
       
       // cleanup 함수들 반환
@@ -923,6 +1063,7 @@ const HomeroomTeacherDashboard = () => {
       const studentsQuery = query(studentsRef, where('role', '==', 'student'));
       const studentsSnapshot = await getDocs(studentsQuery);
       
+      console.log('전체 학생 수:', studentsSnapshot.size);
       
       // 현재 담임교사가 담당하는 학생들만 필터링
       const userId = currentUser.uid || currentUser.id || currentUser.userId;
@@ -943,6 +1084,17 @@ const HomeroomTeacherDashboard = () => {
           studentData.homeroomTeacher === userEmail ||
           studentData.homeroomTeacherId === userEmail;
         
+        console.log(`학생 ${studentData.name} 검사:`, {
+          studentId: doc.id,
+          homeroomTeacher: studentData.homeroomTeacher,
+          homeroomTeacherId: studentData.homeroomTeacherId,
+          currentUserUid: currentUser.uid,
+          currentUserId: currentUser.id,
+          최종_사용자_ID: userId,
+          사용자_이메일: userEmail,
+          isMyStudent
+        });
+        
         if (isMyStudent) {
           myStudents.push({
             id: doc.id,
@@ -951,6 +1103,8 @@ const HomeroomTeacherDashboard = () => {
         }
       });
       
+      console.log('내 담당 학생 수:', myStudents.length);
+      console.log('내 담당 학생들:', myStudents);
       
       setStudents(myStudents);
       setLoading(false);
@@ -964,6 +1118,7 @@ const HomeroomTeacherDashboard = () => {
 
   const fetchPendingRequests = async () => {
     try {
+      console.log('fetchPendingRequests 호출됨, currentUser.uid:', currentUser.uid);
       
       // 교과목 교사가 보낸 상벌점 요청들 조회 (담임 교사가 승인해야 함)
       const requestsRef = collection(db, 'merit_demerit_requests');
@@ -975,6 +1130,8 @@ const HomeroomTeacherDashboard = () => {
       );
       
       const unsubscribe = onSnapshot(q, (snapshot) => {
+        console.log('전체 상벌점 요청 조회 결과:', snapshot.size, '개');
+        console.log('모든 요청들:', snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         
         // 담임 교사와 관련된 요청만 필터링
         const requestsData = snapshot.docs
@@ -999,18 +1156,22 @@ const HomeroomTeacherDashboard = () => {
               request.homeroom_teacher === currentUser.uid ||
               request.teacherId === currentUser.uid;
             
+            console.log(`요청 ${request.id}: homeroomTeacherId=${request.homeroomTeacherId}, homeroom_teacher_id=${request.homeroom_teacher_id}, homeroomTeacher=${request.homeroomTeacher}, homeroom_teacher=${request.homeroom_teacher}, teacherId=${request.teacherId}, 현재UID=${currentUser.uid}, 매칭=${isHomeroomTeacher}`);
             
             return isHomeroomTeacher;
           })
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         
+        console.log('필터링된 요청 데이터:', requestsData);
         setPendingRequests(requestsData);
       }, (error) => {
+        console.error('상벌점 요청 조회 오류:', error);
         setError(error.message);
       });
       
       return unsubscribe;
     } catch (error) {
+      console.error('fetchPendingRequests 오류:', error);
       setError(error.message);
       return null;
     }
@@ -1018,6 +1179,9 @@ const HomeroomTeacherDashboard = () => {
 
   const fetchMeritRecords = async () => {
     try {
+      console.log('=== fetchMeritRecords 디버깅 시작 ===');
+      console.log('현재 사용자 UID:', currentUser.uid);
+      console.log('담당 학생들:', students.map(s => ({ id: s.id, name: s.name, class: s.class })));
       
       const recordsRef = collection(db, 'merit_demerit_records');
       const q = query(
@@ -1026,9 +1190,11 @@ const HomeroomTeacherDashboard = () => {
       );
       
       const unsubscribe = onSnapshot(q, (snapshot) => {
+        console.log('전체 상벌점 기록 조회 결과:', snapshot.size, '개');
         
         // 본인 클래스의 학생 ID 목록 생성
         const myStudentIds = students.map(student => student.id);
+        console.log('본인 클래스 학생 ID 목록:', myStudentIds);
         
         const recordsData = snapshot.docs
           .map(doc => ({
@@ -1039,16 +1205,20 @@ const HomeroomTeacherDashboard = () => {
           .filter(record => {
             // 본인 클래스의 학생들만 필터링
             const isMyStudent = myStudentIds.includes(record.studentId);
+            console.log(`기록 ${record.id}: studentId=${record.studentId}, studentName=${record.studentName}, 본인학생=${isMyStudent}`);
             return isMyStudent;
           });
         
+        console.log('필터링된 상벌점 기록:', recordsData.length, '개');
         setMeritRecords(recordsData);
       }, (error) => {
+        console.error('상벌점 기록 조회 오류:', error);
         setError(error.message);
       });
       
       return unsubscribe;
     } catch (error) {
+      console.error('fetchMeritRecords 오류:', error);
       setError(error.message);
       return null;
     }
@@ -1057,13 +1227,17 @@ const HomeroomTeacherDashboard = () => {
   // 특정 학생의 상벌점 기록 조회 함수
   const fetchStudentMeritHistory = async (studentId) => {
     try {
+      console.log('=== 특정 학생 상벌점 기록 조회 시작 ===');
+      console.log('조회할 학생 ID:', studentId);
       
       const recordsRef = collection(db, 'merit_demerit_records');
       
       // studentId로 조회
       const q = query(recordsRef, where('studentId', '==', studentId));
       
+      console.log('쿼리 실행 (studentId):', studentId);
       const snapshot = await getDocs(q);
+      console.log('쿼리 결과:', snapshot.size, '개');
       
       // 결과 처리
       const allDocs = snapshot.docs;
@@ -1071,9 +1245,11 @@ const HomeroomTeacherDashboard = () => {
         index === self.findIndex(d => d.id === doc.id)
       );
       
+      console.log('중복 제거 후 총 문서 수:', uniqueDocs.length);
       
       const recordsData = uniqueDocs.map(doc => {
         const data = doc.data();
+        console.log('문서 데이터:', doc.id, data);
         
         // 처리 교사 정보 설정
         let processedTeacherName = 'N/A';
@@ -1111,14 +1287,18 @@ const HomeroomTeacherDashboard = () => {
         return dateB - dateA;
       });
       
+      console.log('최종 상벌점 기록:', recordsData);
       return recordsData;
     } catch (error) {
+      console.error('특정 학생 상벌점 기록 조회 오류:', error);
       return [];
     }
   };
 
   // 학생별 누적 점수 계산 및 업데이트 함수
   const updateStudentCumulativeScores = (recordsData) => {
+    console.log('=== updateStudentCumulativeScores 시작 ===');
+    console.log('기록 데이터:', recordsData);
     
     // 학생별로 점수 합계 계산
     const studentScores = {};
@@ -1132,18 +1312,22 @@ const HomeroomTeacherDashboard = () => {
       const points = record.points || 0;
       studentScores[studentId] += points;
       
+      console.log(`학생 ${studentId}: ${record.type} ${points}점 추가, 누적: ${studentScores[studentId]}`);
     });
     
+    console.log('계산된 학생별 점수:', studentScores);
     
     // 학생 데이터 업데이트
     setStudents(prevStudents => {
       const updatedStudents = prevStudents.map(student => {
         const cumulativeScore = studentScores[student.id] || 0;
+        console.log(`학생 ${student.name}(${student.id}) 누적 점수: ${cumulativeScore}`);
         return {
           ...student,
           cumulativeScore: cumulativeScore
         };
       });
+      console.log('업데이트된 학생 데이터:', updatedStudents);
       return updatedStudents;
     });
   };
@@ -1152,6 +1336,11 @@ const HomeroomTeacherDashboard = () => {
   const handleMeritSubmit = async () => {
     const startTime = Date.now();
     try {
+      console.log('=== 상벌점 등록 시작 ===');
+      console.log('선택된 학생:', selectedStudent);
+      console.log('상벌점 폼 데이터:', meritForm);
+      console.log('요청자:', currentUser.name || currentUser.email);
+      console.log('요청 시간:', new Date().toLocaleString());
 
       // 상벌점 등록 시도 로그
       await logSecurityAction(
@@ -1214,30 +1403,42 @@ const HomeroomTeacherDashboard = () => {
         status: 'approved' // 담임교사가 직접 등록하므로 바로 승인
       };
 
+      console.log('생성할 상벌점 기록:', meritRecord);
 
       // Firestore에 저장 - merit_demerit_records만 사용
       const recordsRef = collection(db, 'merit_demerit_records');
       
       // merit_demerit_records에 저장
       const recordDocRef = await addDoc(recordsRef, meritRecord);
+      console.log('merit_demerit_records 저장 완료:', recordDocRef.id);
 
       // accounts 컬렉션의 cumulativeScore 업데이트
       const accountRef = doc(db, 'accounts', selectedStudent.id);
       const currentScore = selectedStudent.cumulativeScore || 0;
       const newScore = currentScore + meritRecord.points;
       
+      console.log(`=== 학생 점수 업데이트 시작 ===`);
+      console.log(`학생 ID: ${selectedStudent.id}`);
+      console.log(`학생 이름: ${selectedStudent.name}`);
+      console.log(`현재 점수: ${currentScore}`);
+      console.log(`추가할 점수: ${meritRecord.points}`);
+      console.log(`새로운 점수: ${newScore}`);
       
       try {
         // accounts 문서가 존재하는지 확인
         const accountDoc = await getDoc(accountRef);
+        console.log(`accounts 문서 존재 여부: ${accountDoc.exists()}`);
         
         if (accountDoc.exists()) {
           // 문서가 존재하면 업데이트
+          console.log(`기존 accounts 문서 업데이트 중...`);
           await updateDoc(accountRef, {
             cumulativeScore: newScore
           });
+          console.log(`✅ 학생 ${selectedStudent.name}의 누적 점수 업데이트 완료: ${currentScore} → ${newScore}`);
         } else {
           // 문서가 없으면 생성
+          console.log(`새 accounts 문서 생성 중...`);
           await setDoc(accountRef, {
             id: selectedStudent.id,
             name: selectedStudent.name,
@@ -1250,8 +1451,11 @@ const HomeroomTeacherDashboard = () => {
             createdAt: new Date(),
             updatedAt: new Date()
           });
+          console.log(`✅ 학생 ${selectedStudent.name}의 accounts 문서 생성 및 누적 점수 설정 완료: ${newScore}`);
         }
+        console.log(`=== 학생 점수 업데이트 완료 ===`);
       } catch (error) {
+        console.error('❌ 학생 점수 업데이트 중 오류:', error);
         // 점수 업데이트 실패해도 상벌점 기록은 저장되었으므로 계속 진행
       }
 
@@ -1296,6 +1500,10 @@ const HomeroomTeacherDashboard = () => {
         `상벌점 등록: ${selectedStudent.name} (${meritForm.type === 'merit' ? '상점' : '벌점'} ${Math.abs(meritForm.value)}점)`
       );
 
+      console.log('=== 상벌점 등록 완료 ===');
+      console.log('소요 시간:', duration, 'ms');
+      console.log('등록된 상벌점:', meritForm.type, Math.abs(meritForm.value), '점');
+      console.log('대상 학생:', selectedStudent.name);
 
       // 다이얼로그 닫기
       setShowMeritDialog(false);
@@ -1312,6 +1520,7 @@ const HomeroomTeacherDashboard = () => {
       });
 
     } catch (error) {
+      console.error('상벌점 등록 오류:', error);
       
       // 오류 로그
       await logError(
@@ -1363,6 +1572,8 @@ const HomeroomTeacherDashboard = () => {
 
   const fetchInquiries = async () => {
     try {
+      console.log('fetchInquiries 호출됨, currentUser:', currentUser);
+      console.log('currentUser.uid:', currentUser?.uid);
       
       const inquiriesRef = collection(db, 'inquiries');
       const q = query(
@@ -1371,19 +1582,23 @@ const HomeroomTeacherDashboard = () => {
       );
       
       const unsubscribe = onSnapshot(q, (snapshot) => {
+        console.log('문의 조회 결과:', snapshot.size, '개');
         const inquiriesData = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
           createdAt: doc.data().createdAt?.toDate?.() || new Date(doc.data().createdAt),
           updatedAt: doc.data().updatedAt?.toDate?.() || new Date(doc.data().updatedAt)
         })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        console.log('문의 데이터:', inquiriesData);
         setInquiries(inquiriesData);
       }, (error) => {
+        console.error('문의 조회 오류:', error);
         setError(error.message);
       });
       
       return unsubscribe;
     } catch (error) {
+      console.error('fetchInquiries 오류:', error);
       setError(error.message);
       return null;
     }
@@ -1391,22 +1606,45 @@ const HomeroomTeacherDashboard = () => {
 
   const fetchMeritReasons = async () => {
     try {
+      console.log('담임교사 - fetchMeritReasons 시작');
       const reasonsRef = collection(db, 'merit_reasons');
       const snapshot = await getDocs(reasonsRef);
       const reasonsData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+      console.log('담임교사 - 가져온 상벌점 사유들:', reasonsData);
       setMeritReasons(reasonsData);
     } catch (error) {
+      console.error('상벌점 사유 조회 오류:', error);
     }
   };
 
   // 학년 관리 요청 내역 조회 함수
   const fetchGradeRequests = async () => {
     try {
+      console.log('=== fetchGradeRequests 디버깅 시작 ===');
+      console.log('현재 사용자 UID:', currentUser.uid);
+      console.log('현재 사용자 UID 타입:', typeof currentUser.uid);
+      console.log('현재 사용자 UID 길이:', currentUser.uid?.length);
       
       const requestsRef = collection(db, 'merit_demerit_requests');
+      
+      // 먼저 모든 요청을 조회해서 디버깅
+      const allRequestsQuery = query(requestsRef);
+      const allSnapshot = await getDocs(allRequestsQuery);
+      console.log('전체 상벌점 요청 개수:', allSnapshot.size);
+      
+      allSnapshot.docs.forEach((doc, index) => {
+        const data = doc.data();
+        console.log(`요청 ${index + 1}:`, {
+          id: doc.id,
+          requester_id: data.requester_id,
+          requester_role: data.requester_role,
+          studentName: data.studentName || data.student_name,
+          status: data.status
+        });
+      });
       
       // 필터링된 쿼리
       const q = query(
@@ -1417,8 +1655,10 @@ const HomeroomTeacherDashboard = () => {
       
       // getDocs로 즉시 조회
       const snapshot = await getDocs(q);
+      console.log('필터링된 학년 관리 요청 조회 결과:', snapshot.size, '개');
       
       if (snapshot.size === 0) {
+        console.log('필터링 결과가 없습니다. requester_id와 requester_role을 다시 확인해보세요.');
       }
       
       const requestsData = snapshot.docs
@@ -1430,11 +1670,13 @@ const HomeroomTeacherDashboard = () => {
         }))
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       
+      console.log('학년 관리 요청 데이터:', requestsData);
       setGradeRequests(requestsData);
       setGradeManagementRequests(requestsData);
       
       // 실시간 리스너도 설정
       const unsubscribe = onSnapshot(q, (snapshot) => {
+        console.log('실시간 업데이트 - 학년 관리 요청 조회 결과:', snapshot.size, '개');
         
         const requestsData = snapshot.docs
           .map(doc => ({
@@ -1448,11 +1690,13 @@ const HomeroomTeacherDashboard = () => {
         setGradeRequests(requestsData);
         setGradeManagementRequests(requestsData);
       }, (error) => {
+        console.error('학년 관리 요청 실시간 조회 오류:', error);
         setError(error.message);
       });
       
       return unsubscribe;
     } catch (error) {
+      console.error('fetchGradeRequests 오류:', error);
       setError(error.message);
       return null;
     }
@@ -1467,7 +1711,9 @@ const HomeroomTeacherDashboard = () => {
         approvedAt: new Date(),
         approvedBy: currentUser.uid
       });
+      console.log('학년 관리 요청 승인 완료:', requestId);
     } catch (error) {
+      console.error('학년 관리 요청 승인 오류:', error);
     }
   };
 
@@ -1479,7 +1725,9 @@ const HomeroomTeacherDashboard = () => {
         rejectedAt: new Date(),
         rejectedBy: currentUser.uid
       });
+      console.log('학년 관리 요청 거부 완료:', requestId);
     } catch (error) {
+      console.error('학년 관리 요청 거부 오류:', error);
     }
   };
 
@@ -1511,6 +1759,7 @@ const HomeroomTeacherDashboard = () => {
       }
       return null;
     } catch (error) {
+      console.error('교사 정보 조회 오류:', error);
       return null;
     }
   };
@@ -1518,22 +1767,30 @@ const HomeroomTeacherDashboard = () => {
   // 학년 관리 관련 함수들
   const fetchGradeClasses = async () => {
     try {
+      console.log('=== fetchGradeClasses 디버깅 시작 ===');
+      console.log('현재 사용자 UID:', currentUser?.uid);
+      console.log('클래스 목록 개수:', classes.length);
+      console.log('현재 내 담당 학생들:', students);
       
       if (students.length === 0) {
+        console.log('내 담당 학생이 없어서 학년을 확인할 수 없습니다.');
         setGradeClasses([]);
         return;
       }
       
       // 내 담당 클래스의 학년 확인
       const myGrade = students[0].grade;
+      console.log('내 클래스 학년:', myGrade);
       
       // 모든 클래스에서 같은 학년 클래스들 찾기 (내가 담당하지 않는 클래스만)
       const myClassNumbers = students.map(s => s.class);
+      console.log('내가 담당하는 반들:', myClassNumbers);
       
       const sameGradeClasses = classes.filter(c => 
         c.grade === myGrade && !myClassNumbers.includes(c.class)
       );
       
+      console.log('같은 학년이지만 내가 담당하지 않는 클래스들:', sameGradeClasses);
       
       setGradeClasses(sameGradeClasses);
       
@@ -1542,6 +1799,7 @@ const HomeroomTeacherDashboard = () => {
         .map(cls => cls.homeroomTeacherId || cls.homeroom_teacher_id || cls.homeroom_teacher || cls.teacher_id)
         .filter(uid => uid && uid.trim() !== '');
       
+      console.log('로드할 교사 UID들:', teacherUids);
       
       // 각 교사 정보를 비동기로 로드
       teacherUids.forEach(uid => {
@@ -1550,32 +1808,42 @@ const HomeroomTeacherDashboard = () => {
         }
       });
       
-      // 학생들 조회는 fetchGradeStudents에서 직접 처리
-      // students가 준비된 후에 호출되도록 별도 useEffect에서 처리
+      // 학생들 조회 (클래스 기반이 아닌 전체 학생 기반)
+      setTimeout(() => {
+        fetchGradeStudents();
+      }, 100);
       
+      console.log('=== fetchGradeClasses 디버깅 끝 ===');
     } catch (error) {
+      console.error('학년 클래스 조회 오류:', error);
     }
   };
 
   const fetchGradeStudents = async () => {
     try {
+      console.log('=== fetchGradeStudents 디버깅 시작 ===');
+      console.log('현재 내 담당 학생들:', students);
       
       // 내 담당 클래스의 학년 확인
       const myGrade = students.length > 0 ? students[0].grade : null;
+      console.log('내 담당 클래스 학년:', myGrade);
       
       if (!myGrade) {
+        console.log('내 담당 클래스 학년을 확인할 수 없습니다.');
         setGradeStudents([]);
         return;
       }
       
       // 내가 담당하는 학생들의 ID 목록
       const myStudentIds = students.map(s => s.id);
+      console.log('내가 담당하는 학생 ID들:', myStudentIds);
       
       // 모든 학생 조회
       const studentsRef = collection(db, 'accounts');
       const studentsQuery = query(studentsRef, where('role', '==', 'student'));
       const studentsSnapshot = await getDocs(studentsQuery);
       
+      console.log('전체 학생 수:', studentsSnapshot.size);
       
       const gradeStudentsData = [];
       studentsSnapshot.forEach((doc) => {
@@ -1585,20 +1853,32 @@ const HomeroomTeacherDashboard = () => {
         const isSameGrade = studentData.grade === myGrade;
         const isNotMyStudent = !myStudentIds.includes(doc.id);
         
+        console.log(`학생 ${studentData.name} (${studentData.grade}학년 ${studentData.class}반) 검사:`, {
+          isSameGrade,
+          isNotMyStudent,
+          studentId: doc.id
+        });
+        
         if (isSameGrade && isNotMyStudent) {
+          console.log(`✓ 학생 ${studentData.name} 추가됨 - 같은 학년, 내 담당 학생이 아님`);
           gradeStudentsData.push({
             id: doc.id,
             ...studentData
           });
         } else {
           if (!isSameGrade) {
+            console.log(`✗ 학생 ${studentData.name} 제외됨 - 다른 학년 (${studentData.grade}학년)`);
           } else if (!isNotMyStudent) {
+            console.log(`✗ 학생 ${studentData.name} 제외됨 - 내 담당 학생`);
           }
         }
       });
       
+      console.log('최종 학년 관리 학생 데이터:', gradeStudentsData);
       setGradeStudents(gradeStudentsData);
+      console.log('=== fetchGradeStudents 디버깅 끝 ===');
     } catch (error) {
+      console.error('학년 학생 조회 오류:', error);
     }
   };
 
@@ -1658,6 +1938,9 @@ const HomeroomTeacherDashboard = () => {
 
   // 담임교사 표시 형식 함수
   const getHomeroomTeacherDisplay = (student) => {
+    console.log('=== getHomeroomTeacherDisplay 디버깅 ===');
+    console.log('학생:', student.name, '학년/반:', student.grade, student.class);
+    console.log('학생 데이터:', student);
     
     // 학생 데이터에서 직접 담임교사 정보 가져오기
     const teacherUid = student.homeroomTeacherId || 
@@ -1665,6 +1948,7 @@ const HomeroomTeacherDashboard = () => {
                       student.homeroom_teacher || 
                       student.teacher_id || '';
     
+    console.log('담임교사 UID:', teacherUid);
     
     // UID가 있으면 캐시에서 교사 정보 확인
     if (teacherUid && teacherUid.trim() !== '') {
@@ -1676,6 +1960,7 @@ const HomeroomTeacherDashboard = () => {
           : (cachedTeacherInfo.email && cachedTeacherInfo.email.trim() !== '' 
             ? `${cachedTeacherInfo.name}(${cachedTeacherInfo.email})`
             : cachedTeacherInfo.name);
+        console.log('캐시된 담임교사 정보:', cachedTeacherInfo, '표시:', displayText);
         return displayText;
       } else {
         // 캐시에 없으면 비동기로 로드
@@ -1695,6 +1980,8 @@ const HomeroomTeacherDashboard = () => {
                         student.teacher_email || 
                         student.email || '';
     
+    console.log('담임교사 이름 (학생 데이터):', teacherName);
+    console.log('담임교사 이메일 (학생 데이터):', teacherEmail);
     
     // 모바일에서는 이름만, PC에서는 이름(이메일) 형태로 표시
     if (isMobileOrSmaller) {
@@ -1709,14 +1996,19 @@ const HomeroomTeacherDashboard = () => {
   };
 
   const handleGradeMeritRequest = (student) => {
+    console.log('=== handleGradeMeritRequest 디버깅 시작 ===');
+    console.log('선택된 학생:', student);
+    console.log('사용 가능한 클래스들:', gradeClasses);
     
     // 학생의 클래스 정보 찾기 (grade-class 조합으로 찾기)
     const studentClass = gradeClasses.find(c => 
       c.grade === student.grade && c.class === student.class
     );
     
+    console.log('찾은 클래스:', studentClass);
     
     if (!studentClass) {
+      console.warn('클래스를 찾을 수 없습니다. 기본 정보로 진행합니다.');
       // 클래스를 찾을 수 없어도 기본 정보로 진행
       const fallbackClass = {
         id: `fallback_${student.grade}_${student.class}`,
@@ -1744,6 +2036,10 @@ const HomeroomTeacherDashboard = () => {
 
   const handleGradeMeritSubmit = async () => {
     try {
+      console.log('=== handleGradeMeritSubmit 디버깅 시작 ===');
+      console.log('selectedGradeStudent:', selectedGradeStudent);
+      console.log('selectedGradeClass:', selectedGradeClass);
+      console.log('gradeMeritForm:', gradeMeritForm);
       
       if (!gradeMeritForm.points || !gradeMeritForm.reason) {
         await Swal.fire({
@@ -1788,6 +2084,10 @@ const HomeroomTeacherDashboard = () => {
                                   selectedGradeClass.teacher_email || 
                                   selectedGradeClass.email || '';
 
+      console.log('=== 담임교사 정보 추출 결과 ===');
+      console.log('homeroomTeacherId:', homeroomTeacherId);
+      console.log('homeroomTeacherName:', homeroomTeacherName);
+      console.log('homeroomTeacherEmail:', homeroomTeacherEmail);
 
       // 상벌점 요청 생성
       const requestData = {
@@ -1827,6 +2127,7 @@ const HomeroomTeacherDashboard = () => {
         createdAt: new Date()
       };
 
+      console.log('요청 데이터:', requestData);
 
       await addDoc(collection(db, 'merit_demerit_requests'), requestData);
 
@@ -1861,6 +2162,7 @@ const HomeroomTeacherDashboard = () => {
       });
 
     } catch (error) {
+      console.error('상벌점 요청 오류:', error);
       await Swal.fire({
         icon: 'error',
         title: '요청 실패',
@@ -2216,6 +2518,7 @@ const HomeroomTeacherDashboard = () => {
               
               successCount++;
             } catch (error) {
+              console.error('학생 데이터 처리 오류:', error);
               errors.push(`행 ${i + 2}: ${student['이름'] || '이름 없음'} - ${error.message}`);
               errorCount++;
             }
@@ -2278,6 +2581,7 @@ const HomeroomTeacherDashboard = () => {
             });
           }
         } catch (error) {
+          console.error('XLSX 파일 처리 오류:', error);
           setLoading(false);
           await Swal.fire({
             title: 'XLSX 파일 처리 오류',
@@ -2304,6 +2608,7 @@ const HomeroomTeacherDashboard = () => {
       
       reader.readAsArrayBuffer(file);
     } catch (error) {
+      console.error('XLSX 업로드 오류:', error);
       setLoading(false);
       await Swal.fire({
         title: 'XLSX 파일 업로드 오류',
@@ -2340,6 +2645,7 @@ const HomeroomTeacherDashboard = () => {
         `학생: ${student.name} (${student.studentId})`
       );
     } catch (error) {
+      console.error('로그 기록 오류:', error);
     }
   };
 
@@ -2427,21 +2733,25 @@ const HomeroomTeacherDashboard = () => {
         });
       }
       
-      try {
-        await addDoc(collection(db, 'system_logs'), {
-          userId: currentUser.uid,
-          userName: currentUser.name || currentUser.email,
-          userRole: currentUser.role,
-          majorCategory: '상벌점 관리',
-          middleCategory: '상벌점 생성',
-          minorCategory: '',
-          action: '상벌점 추가',
-          details: `${currentUser.name || currentUser.email}님이 ${meritForm.type === 'merit' ? '상점' : '벌점'} ${meritForm.value}점을 추가했습니다.`,
-          timestamp: new Date(),
-          createdAt: new Date()
-        });
-          } catch (logError) {
-    }
+      // 로그 기록 (super_admin 제외)
+      if (currentUser.role !== 'super_admin') {
+        try {
+          await addDoc(collection(db, 'system_logs'), {
+            userId: currentUser.uid,
+            userName: currentUser.name || currentUser.email,
+            userRole: currentUser.role,
+            majorCategory: '상벌점 관리',
+            middleCategory: '상벌점 생성',
+            minorCategory: '',
+            action: '상벌점 추가',
+            details: `${currentUser.name || currentUser.email}님이 ${meritForm.type === 'merit' ? '상점' : '벌점'} ${meritForm.value}점을 추가했습니다.`,
+            timestamp: new Date(),
+            createdAt: new Date()
+          });
+        } catch (logError) {
+          console.error('로그 기록 오류:', logError);
+        }
+      }
       
       // 모달창을 먼저 닫고 SweetAlert 표시
       setShowMeritDialog(false);
@@ -2487,22 +2797,24 @@ const HomeroomTeacherDashboard = () => {
         responseNote: status === 'approved' ? '담임 교사 승인' : '담임 교사 거부'
       });
 
-      // 시스템 로그 추가
-      try {
-        await addDoc(collection(db, 'system_logs'), {
-          userId: currentUser.uid,
-          userName: currentUser.name || currentUser.email,
-          userRole: currentUser.role,
-          majorCategory: '상벌점 관리',
-          middleCategory: '상벌점 요청 처리',
-          minorCategory: '',
-          action: `상벌점 요청 ${status === 'approved' ? '승인' : '거부'}`,
-          details: `${currentUser.name || currentUser.email}님이 ${selectedRequest?.studentName || '학생'}의 상벌점 요청을 ${status === 'approved' ? '승인' : '거부'}했습니다. (요청 교사: ${selectedRequest?.requestingTeacherName || '교과목 교사'})`,
-          timestamp: new Date(),
-          createdAt: new Date()
-        });
-      } catch (logError) {
-        // 로그 기록 오류 무시
+      // 시스템 로그 추가 (super_admin 제외)
+      if (currentUser.role !== 'super_admin') {
+        try {
+          await addDoc(collection(db, 'system_logs'), {
+            userId: currentUser.uid,
+            userName: currentUser.name || currentUser.email,
+            userRole: currentUser.role,
+            majorCategory: '상벌점 관리',
+            middleCategory: '상벌점 요청 처리',
+            minorCategory: '',
+            action: `상벌점 요청 ${status === 'approved' ? '승인' : '거부'}`,
+            details: `${currentUser.name || currentUser.email}님이 ${selectedRequest?.studentName || '학생'}의 상벌점 요청을 ${status === 'approved' ? '승인' : '거부'}했습니다. (요청 교사: ${selectedRequest?.requestingTeacherName || '교과목 교사'})`,
+            timestamp: new Date(),
+            createdAt: new Date()
+          });
+        } catch (logError) {
+          console.error('시스템 로그 기록 오류:', logError);
+        }
       }
 
       if (status === 'approved' && selectedRequest) {
@@ -2926,60 +3238,32 @@ const HomeroomTeacherDashboard = () => {
           </Box>
         </Drawer>
 
-        {/* 메인 콘텐츠 - 사이드바 제외한 전체 영역 */}
-        <Box sx={{
+        {/* 메인 콘텐츠 */}
+        <Box sx={{ 
           flexGrow: 1, 
-          overflowY: 'auto',
-          overflowX: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'stretch',
-          width: isMobileOrSmaller ? '100%' : 'calc(100vw - 280px)',
-          minWidth: isMobileOrSmaller ? '320px' : '600px',
-          maxWidth: isMobileOrSmaller ? '100vw' : '1600px',
-          ml: isMobileOrSmaller && !sidebarOpen ? 0 : isMobileOrSmaller ? 0 : '280px',
-          mx: 'auto',
-          p: isMobileOrSmaller ? 1 : 2,
-          // 가로 스크롤 스타일링
-          '&::-webkit-scrollbar': {
-            height: '8px',
-            width: '8px',
-          },
-          '&::-webkit-scrollbar-track': {
-            background: '#f1f1f1',
-            borderRadius: '4px',
-          },
-          '&::-webkit-scrollbar-thumb': {
-            background: '#888',
-            borderRadius: '4px',
-            '&:hover': {
-              background: '#555',
-            },
-          },
+          overflow: 'auto', 
+          p: 3, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'center',
+        ml: isMobileOrSmaller ? 0 : '280px'
         }}>
           {/* 헤더 */}
           <Box sx={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
             alignItems: 'center', 
-            mb: 2, 
+            mb: 4, 
             width: '100%',
-            minWidth: isMobileOrSmaller ? '320px' : '600px',
-            mt: isMobileOrSmaller ? 6 : 0,
-            flexWrap: 'wrap',
-            gap: 1,
+            maxWidth: '100%'
           }}>
-            <Typography variant={isMobileOrSmaller ? "h6" : "h5"} component="h1" sx={{ fontWeight: 'bold' }}>
-              {currentUser.name}선생님
+            <Typography variant="h5" component="h1" sx={{ fontWeight: 'bold' }}>
+            {currentUser.name}선생님
             </Typography>
           </Box>
 
           {/* 통계 카드 */}
-          <Grid container spacing={isMobileOrSmaller ? 1 : 3} sx={{ 
-            mb: 2, 
-            width: '100%',
-            minWidth: isMobileOrSmaller ? '320px' : '600px',
-          }}>
+          <Grid container spacing={3} sx={{ mb: 4, width: '100%', maxWidth: '100%' }}>
             <Grid item xs={12} sm={4}>
             <Card sx={{ height: '100%', display: 'flex' }}>
               <CardContent sx={{ textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', width: '100%' }}>
@@ -3002,11 +3286,7 @@ const HomeroomTeacherDashboard = () => {
           </Grid>
 
           {/* 탭 콘텐츠 */}
-        <Box sx={{ 
-          width: '100%',
-          minWidth: isMobileOrSmaller ? '320px' : '600px',
-          overflowX: 'auto',
-        }}>
+        <Box sx={{ width: '100%', maxWidth: '100%' }}>
           {tabValue === 0 && (
             <Card>
               <CardContent>
@@ -3485,7 +3765,8 @@ const HomeroomTeacherDashboard = () => {
       <Dialog open={showMeritDialog} onClose={() => setShowMeritDialog(false)} maxWidth="md" fullWidth>
         <DialogTitle>상벌점 등록</DialogTitle>
           <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
                   <InputLabel>학생</InputLabel>
                   <Select
@@ -3500,6 +3781,8 @@ const HomeroomTeacherDashboard = () => {
                     ))}
                   </Select>
                 </FormControl>
+              </Grid>
+            <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
                   <InputLabel>구분</InputLabel>
                   <Select
@@ -3511,6 +3794,8 @@ const HomeroomTeacherDashboard = () => {
                     <MenuItem value="demerit">벌점</MenuItem>
                   </Select>
                 </FormControl>
+              </Grid>
+            <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="점수"
@@ -3520,6 +3805,8 @@ const HomeroomTeacherDashboard = () => {
                   inputProps={{ min: 1 }}
                 required
                 />
+              </Grid>
+            <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                   <InputLabel>사유</InputLabel>
                   <Select
@@ -3536,6 +3823,8 @@ const HomeroomTeacherDashboard = () => {
                     ))}
                   </Select>
                 </FormControl>
+              </Grid>
+              <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="상세 내용"
@@ -3544,7 +3833,8 @@ const HomeroomTeacherDashboard = () => {
                 value={meritForm.description || ''}
                   onChange={(e) => setMeritForm({...meritForm, description: e.target.value})}
                 />
-          </Box>
+              </Grid>
+            </Grid>
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setShowMeritDialog(false)}>취소</Button>
@@ -3556,7 +3846,8 @@ const HomeroomTeacherDashboard = () => {
       <Dialog open={showRequestDialog} onClose={() => setShowRequestDialog(false)} maxWidth="md" fullWidth>
         <DialogTitle>상벌점 요청</DialogTitle>
           <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
                 <InputLabel>학생</InputLabel>
                   <Select
@@ -3571,6 +3862,8 @@ const HomeroomTeacherDashboard = () => {
                     ))}
                   </Select>
                 </FormControl>
+              </Grid>
+            <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>구분</InputLabel>
                 <Select
@@ -3582,6 +3875,8 @@ const HomeroomTeacherDashboard = () => {
                   <MenuItem value="demerit">벌점</MenuItem>
                 </Select>
               </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                 label="점수"
@@ -3591,6 +3886,8 @@ const HomeroomTeacherDashboard = () => {
                 inputProps={{ min: 1 }}
                 required
                 />
+              </Grid>
+            <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>사유</InputLabel>
                 <Select
@@ -3607,20 +3904,24 @@ const HomeroomTeacherDashboard = () => {
                     ))}
                 </Select>
               </FormControl>
+            </Grid>
+              <Grid item xs={12}>
                 <TextField
                   fullWidth
-                  label="상세 내용"
+                label="상세 내용"
                   multiline
-                  rows={3}
-                  value={meritForm.description || ''}
-                  onChange={(e) => setMeritForm({...meritForm, description: e.target.value})}
+                rows={3}
+                value={meritForm.description || ''}
+                onChange={(e) => setMeritForm({...meritForm, description: e.target.value})}
                 />
-          </Box>
+              </Grid>
+            </Grid>
           </DialogContent>
           <DialogActions>
           <Button onClick={() => setShowRequestDialog(false)}>취소</Button>
           <Button onClick={() => {
             // 상벌점 요청 로직
+            console.log('상벌점 요청:', meritForm);
             setShowRequestDialog(false);
           }} variant="contained">요청</Button>
           </DialogActions>
@@ -3631,8 +3932,8 @@ const HomeroomTeacherDashboard = () => {
         <DialogTitle>상벌점 요청</DialogTitle>
           <DialogContent>
           {selectedGradeStudent && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
-                  <Box>
+            <Grid container spacing={3} sx={{ mt: 1 }}>
+                  <Grid item xs={12}>
                     <Typography variant="h6" gutterBottom>
                   학생 정보
                     </Typography>
@@ -3645,14 +3946,19 @@ const HomeroomTeacherDashboard = () => {
                     <Typography variant="body1" gutterBottom>
                   <strong>담임교사:</strong> {getHomeroomTeacherDisplay(selectedGradeStudent)}
                     </Typography>
-                  </Box>
+                  </Grid>
                   
+                    <Grid item xs={12}>
                 <Divider />
+                    </Grid>
 
+                  <Grid item xs={12}>
                 <Typography variant="h6" gutterBottom>
                   상벌점 정보
                     </Typography>
+                  </Grid>
 
+              <Grid item xs={12} sm={6}>
                 <FormControl fullWidth required>
                   <InputLabel>상벌점 유형</InputLabel>
                   <Select
@@ -3664,7 +3970,9 @@ const HomeroomTeacherDashboard = () => {
                     <MenuItem value="demerit">벌점</MenuItem>
                   </Select>
                 </FormControl>
+              </Grid>
               
+              <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
                   label="점수"
@@ -3674,7 +3982,9 @@ const HomeroomTeacherDashboard = () => {
                     required
                   placeholder="점수를 입력하세요"
                   />
+                </Grid>
               
+                <Grid item xs={12}>
                 <FormControl fullWidth required>
                   <InputLabel>사유</InputLabel>
                   <Select
@@ -3691,7 +4001,9 @@ const HomeroomTeacherDashboard = () => {
                       ))}
                   </Select>
                 </FormControl>
+                </Grid>
               
+                <Grid item xs={12}>
                   <TextField
                     fullWidth
                   label="상세 설명"
@@ -3701,7 +4013,8 @@ const HomeroomTeacherDashboard = () => {
                   rows={4}
                   placeholder="상세한 설명을 입력하세요 (선택사항)"
                   />
-            </Box>
+                </Grid>
+              </Grid>
             )}
           </DialogContent>
           <DialogActions>
@@ -3759,73 +4072,53 @@ const HomeroomTeacherDashboard = () => {
               </Box>
 
               {selectedStudentForHistory?.meritHistory && selectedStudentForHistory.meritHistory.length > 0 ? (
-                <TableContainer 
-                  component={Paper}
-                  sx={{
-                    overflowX: 'auto',
-                    '&::-webkit-scrollbar': {
-                      height: '8px',
-                    },
-                    '&::-webkit-scrollbar-track': {
-                      backgroundColor: '#f1f1f1',
-                    },
-                    '&::-webkit-scrollbar-thumb': {
-                      backgroundColor: '#888',
-                      borderRadius: '4px',
-                    },
-                    '&::-webkit-scrollbar-thumb:hover': {
-                      backgroundColor: '#555',
-                    },
-                  }}
-                >
-                  <Table sx={{ minWidth: 650 }}>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>날짜</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>구분</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>점수</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>사유</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>상세 내용</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>처리 교사</TableCell>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>날짜</TableCell>
+                      <TableCell>구분</TableCell>
+                      <TableCell>점수</TableCell>
+                      <TableCell>사유</TableCell>
+                      <TableCell>상세 내용</TableCell>
+                      <TableCell>처리 교사</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {selectedStudentForHistory.meritHistory.map((record) => (
+                      <TableRow key={record.id}>
+                        <TableCell>
+                          {record.createdAt?.toLocaleString?.('ko-KR', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                          }) || 'N/A'}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={record.type === 'merit' ? '상점' : '벌점'}
+                            color={record.type === 'merit' ? 'success' : 'error'}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={`${record.points || 0}점`}
+                            color={record.points > 0 ? 'success' : record.points < 0 ? 'error' : 'default'}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell>{record.reason || 'N/A'}</TableCell>
+                        <TableCell>{record.description || ''}</TableCell>
+                        <TableCell>
+                          {record.processedTeacherName || 'N/A'}
+                        </TableCell>
                       </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {selectedStudentForHistory.meritHistory.map((record) => (
-                        <TableRow key={record.id}>
-                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                            {record.createdAt?.toLocaleString?.('ko-KR', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit'
-                            }) || 'N/A'}
-                          </TableCell>
-                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                            <Chip
-                              label={record.type === 'merit' ? '상점' : '벌점'}
-                              color={record.type === 'merit' ? 'success' : 'error'}
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                            <Chip
-                              label={`${record.points || 0}점`}
-                              color={record.points > 0 ? 'success' : record.points < 0 ? 'error' : 'default'}
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell>{record.reason || 'N/A'}</TableCell>
-                          <TableCell>{record.description || ''}</TableCell>
-                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                            {record.processedTeacherName || 'N/A'}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                    ))}
+                  </TableBody>
+                </Table>
               ) : (
                 <Box sx={{ textAlign: 'center', py: 4 }}>
                   <Typography variant="body1" color="text.secondary">

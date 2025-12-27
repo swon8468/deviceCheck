@@ -9,12 +9,6 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #F5F7FA; /* 파스텔 톤 배경색 */
-}
-
-/* MuiBox-root의 배경색 설정 */
-.MuiBox-root.page-container {
-  background-color: #F5F7FA !important; /* 파스텔 톤 배경색 */
 }
 
 /* 페이지 컨테이너 */
@@ -28,7 +22,6 @@ body {
   margin: 0;
   width: 100%;
   overflow-x: hidden;
-  background-color: #F5F7FA; /* 파스텔 톤 배경색 */
 }
 
 /* 콘텐츠 래퍼 */
@@ -57,38 +50,15 @@ body {
 .table-scroll-container {
   width: 100%;
   max-width: 100%;
-  min-width: 100%;
   overflow-x: auto;
-  overflow-y: visible;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   -webkit-overflow-scrolling: touch;
-  /* 가로 스크롤 스타일링 */
-  scrollbar-width: thin;
-  scrollbar-color: #888 #f1f1f1;
-}
-
-.table-scroll-container::-webkit-scrollbar {
-  height: 8px;
-}
-
-.table-scroll-container::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-
-.table-scroll-container::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
-}
-
-.table-scroll-container::-webkit-scrollbar-thumb:hover {
-  background: #555;
 }
 
 .table-scroll-container table {
   width: 100%;
-  min-width: 600px; /* 최소 너비 보장 - 내용이 잘리지 않도록 */
+  min-width: 100%;
   border-collapse: collapse;
   table-layout: auto;
 }
@@ -144,8 +114,9 @@ body, html {
 
 .dashboard-content {
   flex: 1;
-  width: 100%;
+  max-width: calc(100vw - 240px);
   overflow-x: hidden;
+  padding: 16px;
 }
 
 /* 반응형 타이포그래피 */
