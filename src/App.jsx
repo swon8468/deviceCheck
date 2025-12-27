@@ -188,78 +188,92 @@ const App = () => {
           width: '100vw',
           maxWidth: '100vw',
           overflowX: 'hidden',
-          backgroundColor: '#F5F7FA' // 파스텔 톤 배경색
+          backgroundColor: '#F5F7FA'
         }}
       >
         <AuthProvider>
           <AppContent />
         </AuthProvider>
-        
-        {/* PWA 업데이트 알림 - 모달 형태 */}
+
+        {/* PWA 업데이트 알림 - 전체 불투명 배경, 헤더 + 안내 + '업데이트' 버튼만 */}
         <Dialog
           open={needRefresh}
           onClose={handleDismiss}
+          hideBackdrop={false}
           PaperProps={{
             sx: {
               borderRadius: '12px',
-              padding: '24px',
-              maxWidth: '400px',
+              p: 0,
+              maxWidth: '360px',
               width: '90%',
-              textAlign: 'center'
+              textAlign: 'center',
+              boxShadow: 3,
             }
           }}
           sx={{
-            zIndex: 9999,
+            zIndex: 13000,
             '& .MuiBackdrop-root': {
-              backgroundColor: 'rgba(0, 0, 0, 0.5)'
+              backgroundColor: 'rgba(60, 60, 60, 0.7)',
+              backdropFilter: 'none',
             }
           }}
         >
-          <DialogTitle
+          <Box
             sx={{
-              fontSize: '20px',
-              fontWeight: 'bold',
-              color: '#000',
-              paddingBottom: '16px',
-              textAlign: 'center'
+              width: '100%',
+              padding: { xs: '28px 18px 16px 18px', sm: '32px 24px 20px 24px' },
+              bgcolor: '#FFFFFF',
+              borderRadius: '12px',
             }}
           >
-            최신 버전 업데이트
-          </DialogTitle>
-          <DialogContent sx={{ paddingBottom: '20px' }}>
             <Typography
-              variant="body1"
               sx={{
-                color: '#000',
-                fontSize: '14px',
-                lineHeight: '1.6',
-                textAlign: 'center'
+                fontWeight: 700,
+                fontSize: { xs: '1.22rem', sm: '1.24rem' },
+                color: '#181818',
+                mb: '12px',
+                lineHeight: 1.4
+              }}
+              component="h2"
+            >
+              최신 버전 사용 가능
+            </Typography>
+            <Typography
+              sx={{
+                color: '#363636',
+                fontSize: { xs: '0.98rem', sm: '1rem' },
+                mb: '20px',
+                lineHeight: 1.5,
+                wordBreak: 'keep-all',
               }}
             >
-              최신버전 앱으로 업데이트를 위해<br />
-              스토어로 이동합니다.
+              개발자가 새로운 버전을 배포했습니다.<br />
+              안전한 사용을 위해 아래의 버튼을 통해 업데이트를 해주세요.
             </Typography>
-          </DialogContent>
-          <DialogActions sx={{ justifyContent: 'center', paddingTop: '8px' }}>
             <Button
+              fullWidth
               variant="contained"
+              disableElevation
               onClick={handleUpdate}
               sx={{
-                backgroundColor: '#FF9800',
-                color: '#FFFFFF',
-                fontWeight: 'bold',
+                background: '#FF9800',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: { xs: '1.05rem', sm: '1.08rem' },
                 borderRadius: '8px',
-                padding: '10px 40px',
-                textTransform: 'none',
-                fontSize: '16px',
+                minHeight: '46px',
+                py: 0,
+                mb: 0,
+                mt: 0,
+                boxShadow: 'none',
                 '&:hover': {
                   backgroundColor: '#F57C00'
                 }
               }}
             >
-              확인
+              업데이트
             </Button>
-          </DialogActions>
+          </Box>
         </Dialog>
       </Box>
     </ThemeProvider>
