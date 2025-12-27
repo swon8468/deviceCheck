@@ -75,14 +75,11 @@ const AdminDashboard = () => {
   
   // 초기화 동의 상태
   const [resetRequests, setResetRequests] = useState([]);
-  const [inquiries, setInquiries] = useState([]);
   const [showResetApprovalDialog, setShowResetApprovalDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showClassDetailsDialog, setShowClassDetailsDialog] = useState(false);
-  const [showInquiryDetailDialog, setShowInquiryDetailDialog] = useState(false);
   const [showMeritReasonDialog, setShowMeritReasonDialog] = useState(false);
-  const [selectedInquiry, setSelectedInquiry] = useState(null);
   const [selectedClass, setSelectedClass] = useState(null);
   const [meritReasonForm, setMeritReasonForm] = useState({
     type: 'merit',
@@ -284,28 +281,25 @@ const AdminDashboard = () => {
         fetchTeachers(),
         fetchStudents(),
         fetchMeritRecords(),
-        fetchMeritReasons(),
-        fetchInquiries()
+        fetchMeritReasons()
       ]);
       
-      // 최고 관리자 대시보드 접근 로그 기록 (super_admin 제외)
-      if (currentUser.role !== 'super_admin') {
-        try {
-          await addDoc(collection(db, 'system_logs'), {
-            userId: currentUser.uid,
-            userName: currentUser.name || currentUser.email,
-            userRole: currentUser.role,
-            majorCategory: '관리자 활동',
-            middleCategory: '대시보드 접근',
-            minorCategory: '',
-            action: '최고 관리자 대시보드 접근',
-            details: `${currentUser.name || currentUser.email}님이 최고 관리자 대시보드에 접근했습니다.`,
-            timestamp: new Date(),
-            createdAt: new Date()
-          });
-        } catch (logError) {
-          console.error('시스템 로그 기록 오류:', logError);
-        }
+      // 최고 관리자 대시보드 접근 로그 기록
+      try {
+        await addDoc(collection(db, 'system_logs'), {
+          userId: currentUser.uid,
+          userName: currentUser.name || currentUser.email,
+          userRole: currentUser.role,
+          majorCategory: '관리자 활동',
+          middleCategory: '대시보드 접근',
+          minorCategory: '',
+          action: '최고 관리자 대시보드 접근',
+          details: `${currentUser.name || currentUser.email}님이 최고 관리자 대시보드에 접근했습니다.`,
+          timestamp: new Date(),
+          createdAt: new Date()
+        });
+      } catch (logError) {
+        console.error('시스템 로그 기록 오류:', logError);
       }
     } catch (error) {
       // 데이터 조회 오류 처리
@@ -533,110 +527,6 @@ const AdminDashboard = () => {
     setStudents(studentsData);
   };
 
-  const fetchInquiries = async () => {
-    try {
-      console.log('최고 관리자 fetchInquiries 호출됨');
-      
-      // 모든 문의 조회
-      const inquiriesRef = collection(db, 'inquiries');
-      const q = query(inquiriesRef, orderBy('createdAt', 'desc'));
-      
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        console.log('최고 관리자 문의 조회 결과:', snapshot.size, '개');
-        const inquiriesData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: doc.data().createdAt?.toDate?.() || new Date(doc.data().createdAt),
-          updatedAt: doc.data().updatedAt?.toDate?.() || new Date(doc.data().updatedAt)
-        }));
-        console.log('최고 관리자 문의 데이터:', inquiriesData);
-        setInquiries(inquiriesData);
-      }, (error) => {
-        console.error('최고 관리자 문의 조회 오류:', error);
-        setError(error.message);
-      });
-      
-      return unsubscribe;
-    } catch (error) {
-      console.error('최고 관리자 fetchInquiries 오류:', error);
-      setError(error.message);
-      return null;
-    }
-  };
-
-  const handleAddReply = async (inquiryId, replyContent) => {
-    try {
-      if (!replyContent.trim()) {
-        await Swal.fire({
-          title: '오류',
-          text: '답변 내용을 입력해주세요.',
-          icon: 'error',
-          customClass: {
-            container: 'swal2-container-high-z'
-          }
-        });
-        return;
-      }
-
-      const replyData = {
-        content: replyContent.trim(),
-        authorId: currentUser.uid,
-        authorName: currentUser.name,
-        authorRole: currentUser.role,
-        createdAt: new Date()
-      };
-
-      const inquiryRef = doc(db, 'inquiries', inquiryId);
-      const inquiryDoc = await getDoc(inquiryRef);
-      
-      if (inquiryDoc.exists()) {
-        const currentReplies = inquiryDoc.data().replies || [];
-        await updateDoc(inquiryRef, {
-          replies: [...currentReplies, replyData],
-          status: 'answered',
-          updatedAt: new Date()
-        });
-
-        await Swal.fire({
-          title: '성공',
-          text: '답변이 성공적으로 등록되었습니다.',
-          icon: 'success',
-          customClass: {
-            container: 'swal2-container-high-z'
-          }
-        });
-
-        // 로그 기록 (super_admin 제외)
-        if (currentUser.role !== 'super_admin') {
-          try {
-            await addDoc(collection(db, 'system_logs'), {
-              userId: currentUser.uid,
-              userName: currentUser.name || currentUser.email,
-              userRole: currentUser.role,
-              majorCategory: '문의 관리',
-              middleCategory: '답변 등록',
-              minorCategory: '',
-              action: '문의 답변',
-              details: `${currentUser.name || currentUser.email}님이 문의 ID: ${inquiryId}에 답변을 등록했습니다.`,
-              timestamp: new Date(),
-              createdAt: new Date()
-            });
-          } catch (logError) {
-            // 로그 기록 오류 처리
-          }
-        }
-      }
-    } catch (error) {
-      await Swal.fire({
-        title: '오류',
-        text: '답변 등록 중 오류가 발생했습니다.',
-        icon: 'error',
-        customClass: {
-          container: 'swal2-container-high-z'
-        }
-      });
-    }
-  };
 
   // 비밀번호 재설정 이메일 발송 (SweetAlert 사용)
   const handlePasswordReset = async (email) => {
@@ -696,24 +586,22 @@ const AdminDashboard = () => {
           }
         });
         
-        // 시스템 로그 기록 (super_admin 제외)
-        if (currentUser.role !== 'super_admin') {
-          try {
-            await addDoc(collection(db, 'system_logs'), {
-              userId: currentUser.uid,
-              userName: currentUser.name || currentUser.email,
-              userRole: currentUser.role,
-              majorCategory: '관리자 활동',
-              middleCategory: '비밀번호 관리',
-              minorCategory: '',
-              action: '비밀번호 재설정 이메일 발송',
-              details: `${currentUser.name || currentUser.email}님이 ${email}에게 비밀번호 재설정 이메일을 발송했습니다.`,
-              timestamp: new Date(),
-              createdAt: new Date()
-            });
-          } catch (logError) {
-            console.error('로그 기록 오류:', logError);
-          }
+        // 시스템 로그 기록
+        try {
+          await addDoc(collection(db, 'system_logs'), {
+            userId: currentUser.uid,
+            userName: currentUser.name || currentUser.email,
+            userRole: currentUser.role,
+            majorCategory: '관리자 활동',
+            middleCategory: '비밀번호 관리',
+            minorCategory: '',
+            action: '비밀번호 재설정 이메일 발송',
+            details: `${currentUser.name || currentUser.email}님이 ${email}에게 비밀번호 재설정 이메일을 발송했습니다.`,
+            timestamp: new Date(),
+            createdAt: new Date()
+          });
+        } catch (logError) {
+          console.error('로그 기록 오류:', logError);
         }
       } else {
         await Swal.fire({
@@ -1200,24 +1088,22 @@ const AdminDashboard = () => {
         }
       }
       
-      // 로그 기록 (super_admin 제외)
-      if (currentUser.role !== 'super_admin') {
-        try {
-          await addDoc(collection(db, 'system_logs'), {
-            userId: currentUser.uid,
-            userName: currentUser.name || currentUser.email,
-            userRole: currentUser.role,
-            majorCategory: '클래스 관리',
-            middleCategory: '클래스 생성',
-            minorCategory: '',
-            action: '클래스 생성',
-            details: `${currentUser.name || currentUser.email}님이 ${className}을(를) 생성했습니다.`,
-            timestamp: new Date(),
-            createdAt: new Date()
-          });
-        } catch (logError) {
-          // 로그 기록 오류 처리
-        }
+      // 로그 기록
+      try {
+        await addDoc(collection(db, 'system_logs'), {
+          userId: currentUser.uid,
+          userName: currentUser.name || currentUser.email,
+          userRole: currentUser.role,
+          majorCategory: '클래스 관리',
+          middleCategory: '클래스 생성',
+          minorCategory: '',
+          action: '클래스 생성',
+          details: `${currentUser.name || currentUser.email}님이 ${className}을(를) 생성했습니다.`,
+          timestamp: new Date(),
+          createdAt: new Date()
+        });
+      } catch (logError) {
+        // 로그 기록 오류 처리
       }
       
       // 모달창을 먼저 닫고 SweetAlert 표시
@@ -1410,25 +1296,23 @@ const AdminDashboard = () => {
           }
         });
         
-        // 시스템 로그 기록 (super_admin 제외)
-        if (currentAdminData.role !== 'super_admin') {
-          try {
-            const { addDoc, collection } = await import('firebase/firestore');
-            await addDoc(collection(db, 'system_logs'), {
-              userId: currentAdminData.uid,
-              userName: currentAdminData.name || currentAdminData.email,
-              userRole: currentAdminData.role,
-              majorCategory: '관리자 활동',
-              middleCategory: '교사 관리',
-              minorCategory: '계정 생성',
-              action: '교사 계정 생성 및 비밀번호 설정 이메일 발송',
-              details: `${currentAdminData.name || currentAdminData.email}님이 ${teacherForm.name}(${teacherForm.email}) 교사 계정을 생성하고 비밀번호 설정 이메일을 발송했습니다.`,
-              timestamp: new Date(),
-              createdAt: new Date()
-            });
-          } catch (logError) {
-            console.error('로그 기록 오류:', logError);
-          }
+        // 시스템 로그 기록
+        try {
+          const { addDoc, collection } = await import('firebase/firestore');
+          await addDoc(collection(db, 'system_logs'), {
+            userId: currentAdminData.uid,
+            userName: currentAdminData.name || currentAdminData.email,
+            userRole: currentAdminData.role,
+            majorCategory: '관리자 활동',
+            middleCategory: '교사 관리',
+            minorCategory: '계정 생성',
+            action: '교사 계정 생성 및 비밀번호 설정 이메일 발송',
+            details: `${currentAdminData.name || currentAdminData.email}님이 ${teacherForm.name}(${teacherForm.email}) 교사 계정을 생성하고 비밀번호 설정 이메일을 발송했습니다.`,
+            timestamp: new Date(),
+            createdAt: new Date()
+          });
+        } catch (logError) {
+          console.error('로그 기록 오류:', logError);
         }
         
       } catch (authError) {
@@ -1526,24 +1410,22 @@ const AdminDashboard = () => {
         updatedAt: new Date()
       });
       
-      // 로그 기록 (super_admin 제외)
-      if (currentUser.role !== 'super_admin') {
-        try {
-          await addDoc(collection(db, 'system_logs'), {
-            userId: currentUser.uid,
-            userName: currentUser.name || currentUser.email,
-            userRole: currentUser.role,
-            majorCategory: '학생 관리',
-            middleCategory: '학생 수정',
-            minorCategory: '',
-            action: '학생 정보 수정',
-            details: `${currentUser.name || currentUser.email}님이 ${studentForm.name} 학생의 정보를 수정했습니다.`,
-            timestamp: new Date(),
-            createdAt: new Date()
-          });
-        } catch (logError) {
-          // 로그 기록 오류 처리
-        }
+      // 로그 기록
+      try {
+        await addDoc(collection(db, 'system_logs'), {
+          userId: currentUser.uid,
+          userName: currentUser.name || currentUser.email,
+          userRole: currentUser.role,
+          majorCategory: '학생 관리',
+          middleCategory: '학생 수정',
+          minorCategory: '',
+          action: '학생 정보 수정',
+          details: `${currentUser.name || currentUser.email}님이 ${studentForm.name} 학생의 정보를 수정했습니다.`,
+          timestamp: new Date(),
+          createdAt: new Date()
+        });
+      } catch (logError) {
+        // 로그 기록 오류 처리
       }
       
       setShowStudentDialog(false);
@@ -1613,24 +1495,22 @@ const AdminDashboard = () => {
         updatedAt: new Date()
       });
       
-      // 로그 기록 (super_admin 제외)
-      if (currentUser.role !== 'super_admin') {
-        try {
-          await addDoc(collection(db, 'system_logs'), {
-            userId: currentUser.uid,
-            userName: currentUser.name || currentUser.email,
-            userRole: currentUser.role,
-            majorCategory: '학생 관리',
-            middleCategory: '학생 생성',
-            minorCategory: '',
-            action: '학생 추가',
-            details: `${currentUser.name || currentUser.email}님이 ${selectedClass.name}에 ${studentForm.name} 학생을 추가했습니다.`,
-            timestamp: new Date(),
-            createdAt: new Date()
-          });
-        } catch (logError) {
-          // 로그 기록 오류 처리
-        }
+      // 로그 기록
+      try {
+        await addDoc(collection(db, 'system_logs'), {
+          userId: currentUser.uid,
+          userName: currentUser.name || currentUser.email,
+          userRole: currentUser.role,
+          majorCategory: '학생 관리',
+          middleCategory: '학생 생성',
+          minorCategory: '',
+          action: '학생 추가',
+          details: `${currentUser.name || currentUser.email}님이 ${selectedClass.name}에 ${studentForm.name} 학생을 추가했습니다.`,
+          timestamp: new Date(),
+          createdAt: new Date()
+        });
+      } catch (logError) {
+        // 로그 기록 오류 처리
       }
       
       setShowStudentDialog(false);
@@ -2663,7 +2543,6 @@ const AdminDashboard = () => {
           await fetchTeachers();
           await fetchClasses();
           await fetchResetRequests();
-          await fetchInquiries();
           
           const endTime = Date.now();
           const duration = endTime - startTime;
@@ -3413,8 +3292,7 @@ const AdminDashboard = () => {
     { text: '교사 관리', icon: <PersonIcon />, value: 1 },
     { text: '학생 관리', icon: <GroupIcon />, value: 2 },
     { text: '시스템 로그', icon: <DashboardIcon />, value: 3 },
-    { text: '문의 관리', icon: <WarningIcon />, value: 4 },
-    { text: '최고 관리자 전용 기능', icon: <AdminIcon />, value: 5 }
+    { text: '최고 관리자 전용 기능', icon: <AdminIcon />, value: 4 }
   ];
 
   if (!currentUser || currentUser.role !== 'super_admin') {
@@ -3589,12 +3467,11 @@ const AdminDashboard = () => {
           overflow: 'auto', 
           p: isMobileOrSmaller ? 1 : 3, 
           display: 'flex',
-          maxWidth: isMobileOrSmaller ? '100vw' : 'calc(100vw - 240px)',
           overflowX: 'hidden',
           flexDirection: 'column', 
           alignItems: 'center',
-          ml: isMobileOrSmaller && !sidebarOpen ? 0 : isMobileOrSmaller ? 0 : '240px',
-          width: isMobileOrSmaller ? '100%' : 'auto'
+          width: '100%',
+          maxWidth: '100%'
         }}>
           {/* 헤더 */}
           <Box sx={{ 
@@ -4139,105 +4016,6 @@ const AdminDashboard = () => {
           )}
 
           {tabValue === 4 && (
-            <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%' }}>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: isMobileOrSmaller ? 'column' : 'row',
-                justifyContent: 'space-between', 
-                alignItems: isMobileOrSmaller ? 'stretch' : 'center', 
-                mb: 2,
-                gap: isMobileOrSmaller ? 1 : 0
-              }}>
-                <TextField
-                  label="문의 검색"
-                  variant="outlined"
-                  size="small"
-                  placeholder="제목, 작성자, 카테고리로 검색"
-                  sx={{ minWidth: isMobileOrSmaller ? '100%' : 300 }}
-                />
-                <Box sx={{ display: 'flex', flexDirection: isMobileOrSmaller ? 'row' : 'row', gap: 1 }}>
-                  <Button
-                    variant="outlined"
-                    size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
-                    fullWidth={isMobileOrSmaller}
-                  >
-                    전체
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
-                    fullWidth={isMobileOrSmaller}
-                  >
-                    답변 대기
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size={isSmallMobile ? "small" : isMobile ? "small" : isLargeDesktop ? "medium" : "medium"}
-                    fullWidth={isMobileOrSmaller}
-                  >
-                    답변 완료
-                  </Button>
-                </Box>
-              </Box>
-              <div className="table-scroll-container">
-                <TableContainer component={Paper}>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>작성일시</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>작성자</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>카테고리</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>제목</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>상태</TableCell>
-                        <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>작업</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {inquiries.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={6} align="center" sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
-                            문의 내역이 없습니다.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        inquiries.map((inquiry) => (
-                          <TableRow key={inquiry.id}>
-                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>{formatDate(inquiry.createdAt)}</TableCell>
-                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>{inquiry.authorName}</TableCell>
-                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem', display: isMobileOrSmaller ? 'none' : 'table-cell' }}>
-                              <Chip label={inquiry.category} size="small" />
-                            </TableCell>
-                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>{inquiry.title}</TableCell>
-                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
-                              <Chip
-                                label={inquiry.status === 'pending' ? '답변 대기' : '답변 완료'}
-                                color={inquiry.status === 'pending' ? 'warning' : 'success'}
-                                size="small"
-                              />
-                            </TableCell>
-                            <TableCell sx={{ fontSize: isMobileOrSmaller ? '0.75rem' : '0.875rem' }}>
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => {
-                                  setSelectedInquiry(inquiry);
-                                  setShowInquiryDetailDialog(true);
-                                }}
-                              >
-                                상세보기
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </div>
-            </Box>
-          )}
-
-          {tabValue === 5 && (
             <Box sx={{ width: '100%', maxWidth: '100%', minWidth: '100%' }}>
               <Box sx={{ 
                 display: 'flex', 

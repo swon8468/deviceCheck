@@ -482,24 +482,22 @@ const HomeroomTeacherDashboard = () => {
         responseNote: status === 'approved' ? '담임 교사 승인' : '담임 교사 거부'
       });
 
-      // 시스템 로그 추가 (super_admin 제외)
-      if (currentUser.role !== 'super_admin') {
-        try {
-          await addDoc(collection(db, 'system_logs'), {
-            userId: currentUser.uid,
-            userName: currentUser.name || currentUser.email,
-            userRole: currentUser.role,
-            majorCategory: '상벌점 관리',
-            middleCategory: '상벌점 요청 처리',
-            minorCategory: '',
-            action: `상벌점 요청 ${status === 'approved' ? '승인' : '거부'}`,
-            details: `${currentUser.name || currentUser.email}님이 ${requestData.studentName || '학생'}의 상벌점 요청을 ${status === 'approved' ? '승인' : '거부'}했습니다. (요청 교사: ${requestData.requestingTeacherName || '교과목 교사'})`,
-            timestamp: new Date(),
-            createdAt: new Date()
-          });
-        } catch (logError) {
-          console.error('시스템 로그 기록 오류:', logError);
-        }
+      // 시스템 로그 추가
+      try {
+        await addDoc(collection(db, 'system_logs'), {
+          userId: currentUser.uid,
+          userName: currentUser.name || currentUser.email,
+          userRole: currentUser.role,
+          majorCategory: '상벌점 관리',
+          middleCategory: '상벌점 요청 처리',
+          minorCategory: '',
+          action: `상벌점 요청 ${status === 'approved' ? '승인' : '거부'}`,
+          details: `${currentUser.name || currentUser.email}님이 ${requestData.studentName || '학생'}의 상벌점 요청을 ${status === 'approved' ? '승인' : '거부'}했습니다. (요청 교사: ${requestData.requestingTeacherName || '교과목 교사'})`,
+          timestamp: new Date(),
+          createdAt: new Date()
+        });
+      } catch (logError) {
+        console.error('시스템 로그 기록 오류:', logError);
       }
 
       if (status === 'approved') {
@@ -995,24 +993,22 @@ const HomeroomTeacherDashboard = () => {
           
           setupRealtimeListeners();
           
-          // 담임 교사 대시보드 접근 로그 기록 (super_admin 제외)
-          if (currentUser.role !== 'super_admin') {
-            try {
-              await addDoc(collection(db, 'system_logs'), {
-                userId: currentUser.uid,
-                userName: currentUser.name || currentUser.email,
-                userRole: currentUser.role,
-                majorCategory: '교사 활동',
-                middleCategory: '대시보드 접근',
-                minorCategory: '',
-                action: '담임 교사 대시보드 접근',
-                details: `${currentUser.name || currentUser.email}님이 담임 교사 대시보드에 접근했습니다.`,
-                timestamp: new Date(),
-                createdAt: new Date()
-              });
-            } catch (logError) {
-              console.error('시스템 로그 기록 오류:', logError);
-            }
+          // 담임 교사 대시보드 접근 로그 기록
+          try {
+            await addDoc(collection(db, 'system_logs'), {
+              userId: currentUser.uid,
+              userName: currentUser.name || currentUser.email,
+              userRole: currentUser.role,
+              majorCategory: '교사 활동',
+              middleCategory: '대시보드 접근',
+              minorCategory: '',
+              action: '담임 교사 대시보드 접근',
+              details: `${currentUser.name || currentUser.email}님이 담임 교사 대시보드에 접근했습니다.`,
+              timestamp: new Date(),
+              createdAt: new Date()
+            });
+          } catch (logError) {
+            console.error('시스템 로그 기록 오류:', logError);
           }
           
           // 디버깅을 위한 테스트 함수
@@ -2733,25 +2729,21 @@ const HomeroomTeacherDashboard = () => {
         });
       }
       
-      // 로그 기록 (super_admin 제외)
-      if (currentUser.role !== 'super_admin') {
-        try {
-          await addDoc(collection(db, 'system_logs'), {
-            userId: currentUser.uid,
-            userName: currentUser.name || currentUser.email,
-            userRole: currentUser.role,
-            majorCategory: '상벌점 관리',
-            middleCategory: '상벌점 생성',
-            minorCategory: '',
-            action: '상벌점 추가',
-            details: `${currentUser.name || currentUser.email}님이 ${meritForm.type === 'merit' ? '상점' : '벌점'} ${meritForm.value}점을 추가했습니다.`,
-            timestamp: new Date(),
-            createdAt: new Date()
-          });
-        } catch (logError) {
-          console.error('로그 기록 오류:', logError);
-        }
-      }
+      try {
+        await addDoc(collection(db, 'system_logs'), {
+          userId: currentUser.uid,
+          userName: currentUser.name || currentUser.email,
+          userRole: currentUser.role,
+          majorCategory: '상벌점 관리',
+          middleCategory: '상벌점 생성',
+          minorCategory: '',
+          action: '상벌점 추가',
+          details: `${currentUser.name || currentUser.email}님이 ${meritForm.type === 'merit' ? '상점' : '벌점'} ${meritForm.value}점을 추가했습니다.`,
+          timestamp: new Date(),
+          createdAt: new Date()
+        });
+          } catch (logError) {
+    }
       
       // 모달창을 먼저 닫고 SweetAlert 표시
       setShowMeritDialog(false);
@@ -2797,24 +2789,22 @@ const HomeroomTeacherDashboard = () => {
         responseNote: status === 'approved' ? '담임 교사 승인' : '담임 교사 거부'
       });
 
-      // 시스템 로그 추가 (super_admin 제외)
-      if (currentUser.role !== 'super_admin') {
-        try {
-          await addDoc(collection(db, 'system_logs'), {
-            userId: currentUser.uid,
-            userName: currentUser.name || currentUser.email,
-            userRole: currentUser.role,
-            majorCategory: '상벌점 관리',
-            middleCategory: '상벌점 요청 처리',
-            minorCategory: '',
-            action: `상벌점 요청 ${status === 'approved' ? '승인' : '거부'}`,
-            details: `${currentUser.name || currentUser.email}님이 ${selectedRequest?.studentName || '학생'}의 상벌점 요청을 ${status === 'approved' ? '승인' : '거부'}했습니다. (요청 교사: ${selectedRequest?.requestingTeacherName || '교과목 교사'})`,
-            timestamp: new Date(),
-            createdAt: new Date()
-          });
-        } catch (logError) {
-          console.error('시스템 로그 기록 오류:', logError);
-        }
+      // 시스템 로그 추가
+      try {
+        await addDoc(collection(db, 'system_logs'), {
+          userId: currentUser.uid,
+          userName: currentUser.name || currentUser.email,
+          userRole: currentUser.role,
+          majorCategory: '상벌점 관리',
+          middleCategory: '상벌점 요청 처리',
+          minorCategory: '',
+          action: `상벌점 요청 ${status === 'approved' ? '승인' : '거부'}`,
+          details: `${currentUser.name || currentUser.email}님이 ${selectedRequest?.studentName || '학생'}의 상벌점 요청을 ${status === 'approved' ? '승인' : '거부'}했습니다. (요청 교사: ${selectedRequest?.requestingTeacherName || '교과목 교사'})`,
+          timestamp: new Date(),
+          createdAt: new Date()
+        });
+      } catch (logError) {
+        console.error('시스템 로그 기록 오류:', logError);
       }
 
       if (status === 'approved' && selectedRequest) {
@@ -3246,7 +3236,8 @@ const HomeroomTeacherDashboard = () => {
           display: 'flex', 
           flexDirection: 'column', 
           alignItems: 'center',
-        ml: isMobileOrSmaller ? 0 : '280px'
+          width: '100%',
+          maxWidth: '100%'
         }}>
           {/* 헤더 */}
           <Box sx={{ 

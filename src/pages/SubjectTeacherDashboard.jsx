@@ -227,24 +227,22 @@ const SubjectTeacherDashboard = () => {
           unsubscribeInquiries = await fetchInquiries();
           await fetchTeachers();
           
-          // 교과목 교사 대시보드 접근 로그 기록 (super_admin 제외)
-          if (currentUser.role !== 'super_admin') {
-            try {
-              await addDoc(collection(db, 'system_logs'), {
-                userId: currentUser.uid,
-                userName: currentUser.name || currentUser.email,
-                userRole: currentUser.role,
-                majorCategory: '교사 활동',
-                middleCategory: '대시보드 접근',
-                minorCategory: '',
-                action: '교과목 교사 대시보드 접근',
-                details: `${currentUser.name || currentUser.email}님이 교과목 교사 대시보드에 접근했습니다.`,
-                timestamp: new Date(),
-                createdAt: new Date()
-              });
-            } catch (logError) {
-              console.error('시스템 로그 기록 오류:', logError);
-            }
+          // 교과목 교사 대시보드 접근 로그 기록
+          try {
+            await addDoc(collection(db, 'system_logs'), {
+              userId: currentUser.uid,
+              userName: currentUser.name || currentUser.email,
+              userRole: currentUser.role,
+              majorCategory: '교사 활동',
+              middleCategory: '대시보드 접근',
+              minorCategory: '',
+              action: '교과목 교사 대시보드 접근',
+              details: `${currentUser.name || currentUser.email}님이 교과목 교사 대시보드에 접근했습니다.`,
+              timestamp: new Date(),
+              createdAt: new Date()
+            });
+          } catch (logError) {
+            console.error('시스템 로그 기록 오류:', logError);
           }
         } catch (error) {
           console.error('리스너 설정 오류:', error);
@@ -716,24 +714,22 @@ const SubjectTeacherDashboard = () => {
       
       const docRef = await addDoc(collection(db, 'merit_demerit_requests'), requestData);
       
-      // 로그 기록 (super_admin 제외)
-      if (currentUser.role !== 'super_admin') {
-        try {
-          await addDoc(collection(db, 'system_logs'), {
-            userId: currentUser.uid,
-            userName: currentUser.name || currentUser.email,
-            userRole: currentUser.role,
-            majorCategory: '상벌점 관리',
-            middleCategory: '상벌점 요청',
-            minorCategory: '',
-            action: '상벌점 요청 전송',
-            details: `${currentUser.name || currentUser.email}님이 ${selectedStudentData.name} 학생에게 상벌점 요청을 전송했습니다.`,
-            timestamp: new Date(),
-            createdAt: new Date()
-          });
-        } catch (logError) {
-          console.error('로그 기록 오류:', logError);
-        }
+      // 로그 기록
+      try {
+        await addDoc(collection(db, 'system_logs'), {
+          userId: currentUser.uid,
+          userName: currentUser.name || currentUser.email,
+          userRole: currentUser.role,
+          majorCategory: '상벌점 관리',
+          middleCategory: '상벌점 요청',
+          minorCategory: '',
+          action: '상벌점 요청 전송',
+          details: `${currentUser.name || currentUser.email}님이 ${selectedStudentData.name} 학생에게 상벌점 요청을 전송했습니다.`,
+          timestamp: new Date(),
+          createdAt: new Date()
+        });
+      } catch (logError) {
+        console.error('로그 기록 오류:', logError);
       }
       
       setShowRequestDialog(false);
@@ -1493,7 +1489,8 @@ const SubjectTeacherDashboard = () => {
         display: 'flex', 
         flexDirection: 'column', 
         alignItems: 'center',
-        ml: '280px'
+        width: '100%',
+        maxWidth: '100%'
       }}>
         {/* 헤더 */}
         <Box sx={{ 

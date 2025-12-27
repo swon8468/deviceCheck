@@ -96,24 +96,22 @@ export const AuthProvider = ({ children }) => {
         setCurrentUser(user);
         setUserRole(userData.role);
         
-        // 로그인 성공 로그 기록 (super_admin 제외)
-        if (user.role !== 'super_admin') {
-          try {
-            await addDoc(collection(db, 'system_logs'), {
-              userId: user.uid,
-              userName: user.name || user.email,
-              userRole: user.role,
-              majorCategory: '시스템',
-              middleCategory: '로그인',
-              minorCategory: '',
-              action: '로그인 성공',
-              details: `${user.name || user.email}님이 로그인했습니다.`,
-              timestamp: new Date(),
-              createdAt: new Date()
-            });
-          } catch (logError) {
-            console.error('로그 기록 오류:', logError);
-          }
+        // 로그인 성공 로그 기록
+        try {
+          await addDoc(collection(db, 'system_logs'), {
+            userId: user.uid,
+            userName: user.name || user.email,
+            userRole: user.role,
+            majorCategory: '시스템',
+            middleCategory: '로그인',
+            minorCategory: '',
+            action: '로그인 성공',
+            details: `${user.name || user.email}님이 로그인했습니다.`,
+            timestamp: new Date(),
+            createdAt: new Date()
+          });
+        } catch (logError) {
+          console.error('로그 기록 오류:', logError);
         }
         
         return { success: true };
@@ -143,7 +141,7 @@ export const AuthProvider = ({ children }) => {
           errorMessage = error.message;
       }
       
-      // 로그인 실패 로그 기록 (로그인 실패는 모든 경우에 기록)
+      // 로그인 실패 로그 기록
       try {
         await addDoc(collection(db, 'system_logs'), {
           userId: 'unknown',
@@ -197,8 +195,8 @@ export const AuthProvider = ({ children }) => {
       setUserRole(null);
       console.log('로그아웃 완료');
       
-      // 로그아웃 로그 기록 (super_admin 제외)
-      if (currentUserData && currentUserData.role !== 'super_admin') {
+      // 로그아웃 로그 기록
+      if (currentUserData) {
         try {
           await addDoc(collection(db, 'system_logs'), {
             userId: currentUserData.uid,

@@ -3,11 +3,6 @@ import { db } from '../firebase/config';
 
 export const logAction = async (logData) => {
   try {
-    // super_admin 계정의 로그는 기록하지 않음
-    if (logData.userRole === 'super_admin') {
-      return;
-    }
-    
     const logEntry = {
       ...logData,
       timestamp: new Date(),
